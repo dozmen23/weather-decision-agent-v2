@@ -14,3 +14,10 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 ## Durum
 
 Projenin temiz başlangıç yapısı oluşturuldu.
+
+İlk domain modelleri eklendi:
+
+- `WeatherData`: Normalize edilmiş hava durumu bilgisi
+- `UserPreferences`: Kullanıcı tercihleri ve sınırları
+- `Activity`: Önerilebilecek aktivite adayı
+- `Recommendation`: Agent tarafından üretilecek öneri çıktısı
