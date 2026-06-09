@@ -25,7 +25,10 @@ def evaluate_activity(
     failed_rules: list[str] = []
     warnings: list[str] = []
 
-    if activity.activity_type != preferences.preferred_activity_type:
+    if (
+        activity.activity_type.casefold()
+        != preferences.preferred_activity_type.casefold()
+    ):
         warnings.append("Activity type does not match the user's first preference.")
 
     if activity.is_outdoor != preferences.prefers_outdoor:

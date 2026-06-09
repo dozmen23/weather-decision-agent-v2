@@ -1,0 +1,92 @@
+[
+  {
+    "name": "Park Walk",
+    "activity_type": "walking",
+    "is_outdoor": true,
+    "min_temperature_celsius": 8,
+    "max_temperature_celsius": 32,
+    "max_precipitation_probability_percent": 45,
+    "max_wind_speed_kmh": 30
+  },
+  {
+    "name": "Coastal Cycling",
+    "activity_type": "cycling",
+    "is_outdoor": true,
+    "min_temperature_celsius": 12,
+    "max_temperature_celsius": 30,
+    "max_precipitation_probability_percent": 25,
+    "max_wind_speed_kmh": 22
+  },
+  {
+    "name": "Outdoor Running",
+    "activity_type": "running",
+    "is_outdoor": true,
+    "min_temperature_celsius": 5,
+    "max_temperature_celsius": 27,
+    "max_precipitation_probability_percent": 35,
+    "max_wind_speed_kmh": 28
+  },
+  {
+    "name": "City Photography Walk",
+    "activity_type": "photography",
+    "is_outdoor": true,
+    "min_temperature_celsius": 5,
+    "max_temperature_celsius": 32,
+    "max_precipitation_probability_percent": 30,
+    "max_wind_speed_kmh": 25
+  },
+  {
+    "name": "Outdoor Picnic",
+    "activity_type": "social",
+    "is_outdoor": true,
+    "min_temperature_celsius": 16,
+    "max_temperature_celsius": 30,
+    "max_precipitation_probability_percent": 15,
+    "max_wind_speed_kmh": 18
+  },
+  {
+    "name": "Museum Visit",
+    "activity_type": "culture",
+    "is_outdoor": false,
+    "min_temperature_celsius": -20,
+    "max_temperature_celsius": 50,
+    "max_precipitation_probability_percent": 100,
+    "max_wind_speed_kmh": 100
+  },
+  {
+    "name": "Indoor Climbing",
+    "activity_type": "sports",
+    "is_outdoor": false,
+    "min_temperature_celsius": -20,
+    "max_temperature_celsius": 50,
+    "max_precipitation_probability_percent": 100,
+    "max_wind_speed_kmh": 100
+  },
+  {
+    "name": "Art Workshop",
+    "activity_type": "creative",
+    "is_outdoor": false,
+    "min_temperature_celsius": -20,
+    "max_temperature_celsius": 50,
+    "max_precipitation_probability_percent": 100,
+    "max_wind_speed_kmh": 100
+  },
+  {
+    "name": "Library Study Session",
+    "activity_type": "study",
+    "is_outdoor": false,
+    "min_temperature_celsius": -20,
+    "max_temperature_celsius": 50,
+    "max_precipitation_probability_percent": 100,
+    "max_wind_speed_kmh": 100
+  },
+  {
+    "name": "Cafe Meetup",
+    "activity_type": "social",
+    "is_outdoor": false,
+    "min_temperature_celsius": -20,
+    "max_temperature_celsius": 50,
+    "max_precipitation_probability_percent": 100,
+    "max_wind_speed_kmh": 100
+  }
+]
