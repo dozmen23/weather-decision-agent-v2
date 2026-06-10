@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "clear-weather-preferred-walk",
+      "description": "Preferred outdoor walking activity should be selected directly.",
+      "city": "Istanbul",
+      "weather": {
+        "city": "Istanbul",
+        "temperature_celsius": 22.5,
+        "precipitation_probability_percent": 5,
+        "wind_speed_kmh": 5,
+        "condition": "Clear sky"
+      },
+      "preferences": {
+        "preferred_activity_type": "walking",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 15,
+        "max_temperature_celsius": 30,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Park Walk",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_preferred_candidates"]
+      }
+    },
+    {
+      "id": "storm-requires-indoor-fallback",
+      "description": "Dangerous outdoor weather should trigger indoor replanning.",
+      "city": "Istanbul",
+      "weather": {
+        "city": "Istanbul",
+        "temperature_celsius": 18,
+        "precipitation_probability_percent": 90,
+        "wind_speed_kmh": 45,
+        "condition": "Thunderstorm"
+      },
+      "preferences": {
+        "preferred_activity_type": "walking",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 15,
+        "max_temperature_celsius": 30,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Art Workshop",
+        "used_safe_fallback": true,
+        "verdict": "approved",
+        "required_actions": [
+          "load_broader_candidates",
+          "load_safe_alternatives"
+        ]
+      }
+    },
+    {
+      "id": "indoor-culture-direct-match",
+      "description": "An indoor culture preference should select the museum directly.",
+      "city": "Ankara",
+      "weather": {
+        "city": "Ankara",
+        "temperature_celsius": 8,
+        "precipitation_probability_percent": 70,
+        "wind_speed_kmh": 35,
+        "condition": "Rainy"
+      },
+      "preferences": {
+        "preferred_activity_type": "culture",
+        "prefers_outdoor": false,
+        "min_temperature_celsius": 15,
+        "max_temperature_celsius": 28,
+        "max_precipitation_probability_percent": 30,
+        "max_wind_speed_kmh": 20
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Museum Visit",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_preferred_candidates"]
+      }
+    },
+    {
+      "id": "cycling-eliminated-broader-outdoor-search",
+      "description": "Excess wind for cycling should trigger a broader outdoor search.",
+      "city": "Izmir",
+      "weather": {
+        "city": "Izmir",
+        "temperature_celsius": 22,
+        "precipitation_probability_percent": 5,
+        "wind_speed_kmh": 23,
+        "condition": "Windy"
+      },
+      "preferences": {
+        "preferred_activity_type": "cycling",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 15,
+        "max_temperature_celsius": 30,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 30
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Park Walk",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_broader_candidates"]
+      }
+    },
+    {
+      "id": "social-picnic-good-weather",
+      "description": "Good weather should preserve a preferred outdoor social activity.",
+      "city": "Antalya",
+      "weather": {
+        "city": "Antalya",
+        "temperature_celsius": 25,
+        "precipitation_probability_percent": 10,
+        "wind_speed_kmh": 10,
+        "condition": "Partly cloudy"
+      },
+      "preferences": {
+        "preferred_activity_type": "social",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 16,
+        "max_temperature_celsius": 30,
+        "max_precipitation_probability_percent": 30,
+        "max_wind_speed_kmh": 20
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Outdoor Picnic",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_preferred_candidates"]
+      }
+    }
+  ]
+}
