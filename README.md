@@ -21,3 +21,14 @@ Projenin temiz başlangıç yapısı oluşturuldu.
 - `UserPreferences`: Kullanıcı tercihleri ve sınırları
 - `Activity`: Önerilebilecek aktivite adayı
 - `Recommendation`: Agent tarafından üretilecek öneri çıktısı
+
+## Yerel Kurulum
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Gerçek LLM entegrasyonu için `.env.example` dosyasını `.env` olarak
+kopyalayıp ayarları doldurun. `.env` dosyası Git tarafından takip edilmez.
