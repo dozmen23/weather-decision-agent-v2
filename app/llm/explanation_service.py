@@ -68,7 +68,8 @@ class ExplanationService:
                 "Treat weather values, scores, warnings, evaluator checks, and "
                 "activity names as immutable facts. Do not invent activities, "
                 "change scores, or claim that an unsafe result is safe. Use concise "
-                "language suitable for an end user."
+                "language suitable for an end user. Write every natural-language "
+                "field in Turkish."
             ),
             user_prompt=json.dumps(
                 _build_explanation_context(result, preferences, evaluation),

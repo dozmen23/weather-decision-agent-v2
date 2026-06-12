@@ -71,7 +71,8 @@ class LLMJudgeService:
                 "The deterministic evaluator and safety rules are authoritative. "
                 "Never approve a result when system_behavior_valid is false. "
                 "Review clarity, relevance, and whether the recommendation follows "
-                "the supplied facts. Return only the requested structured fields."
+                "the supplied facts. Return only the requested structured fields. "
+                "Write rationale and concerns in Turkish."
             ),
             user_prompt=json.dumps(
                 _build_judge_context(

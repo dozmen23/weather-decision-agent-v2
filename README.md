@@ -32,3 +32,9 @@ pip install -r requirements.txt
 
 Gerçek LLM entegrasyonu için `.env.example` dosyasını `.env` olarak
 kopyalayıp ayarları doldurun. `.env` dosyası Git tarafından takip edilmez.
+
+Web arayüzünü başlatmak için:
+
+```bash
+streamlit run streamlit_app.py
+```
