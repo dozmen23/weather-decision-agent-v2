@@ -1,6 +1,7 @@
 """Deterministic planner for the first autonomous decision loop."""
 
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 
 from app.core.scoring import ScoreBreakdown
@@ -36,6 +37,7 @@ class AgentState:
 
     city: str
     preferences: UserPreferences
+    target_date: date | None = None
     weather: WeatherData | None = None
     candidates: list[Activity] = field(default_factory=list)
     ranked_candidates: list[ScoreBreakdown] = field(default_factory=list)

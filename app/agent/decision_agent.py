@@ -1,6 +1,7 @@
 """Autonomous tool-using decision loop for weather recommendations."""
 
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Protocol
 
 from app.agent.planner import (
@@ -23,6 +24,13 @@ class WeatherTool(Protocol):
 
     def get_current_weather(self, city: str) -> WeatherData:
         """Return normalized current weather for a city."""
+
+    def get_weather_for_date(
+        self,
+        city: str,
+        target_date: date,
+    ) -> WeatherData:
+        """Return normalized forecast weather for a city and date."""
 
 
 class ActivityCatalogTool(Protocol):
@@ -80,20 +88,40 @@ class DecisionAgent:
         city: str,
         preferences: UserPreferences,
         recommendation_limit: int = 3,
+        target_date: date | None = None,
     ) -> AgentResult:
         """Run the autonomous loop until recommendations or a safe stop."""
-        state = AgentState(city=city, preferences=preferences)
+        state = AgentState(
+            city=city,
+            preferences=preferences,
+            target_date=target_date,
+        )
         trace: list[AgentTraceStep] = []
 
         for _ in range(self.max_steps):
             action = self.planner.choose_next_action(state)
 
             if action is AgentAction.FETCH_WEATHER:
-                state.weather = self.weather_tool.get_current_weather(state.city)
+                if state.target_date is None:
+                    state.weather = self.weather_tool.get_current_weather(
+                        state.city
+                    )
+                    weather_detail = (
+                        f"Retrieved current weather for {state.weather.city}."
+                    )
+                else:
+                    state.weather = self.weather_tool.get_weather_for_date(
+                        state.city,
+                        state.target_date,
+                    )
+                    weather_detail = (
+                        f"Retrieved forecast for {state.weather.city} on "
+                        f"{state.target_date.isoformat()}."
+                    )
                 trace.append(
                     AgentTraceStep(
                         action,
-                        f"Retrieved current weather for {state.weather.city}.",
+                        weather_detail,
                     )
                 )
                 continue

@@ -91,7 +91,18 @@ def _build_explanation_context(
         "agent_status": result.status,
         "weather": {
             "city": result.weather.city,
+            "forecast_date": (
+                result.weather.forecast_date.isoformat()
+                if result.weather.forecast_date
+                else None
+            ),
             "temperature_celsius": result.weather.temperature_celsius,
+            "minimum_temperature_celsius": (
+                result.weather.minimum_temperature_celsius
+            ),
+            "maximum_temperature_celsius": (
+                result.weather.maximum_temperature_celsius
+            ),
             "precipitation_probability_percent": (
                 result.weather.precipitation_probability_percent
             ),

@@ -1,6 +1,7 @@
 """Tests for the Open-Meteo weather service."""
 
 import unittest
+from datetime import date
 from urllib.parse import parse_qs, urlparse
 
 from app.services.weather_service import (
@@ -123,6 +124,170 @@ class WeatherServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(weather.condition, "Thunderstorm")
+
+    def test_seven_day_forecast_is_requested_and_normalized(self) -> None:
+        requested_urls: list[str] = []
+
+        def fake_fetcher(url: str) -> dict[str, object]:
+            requested_urls.append(url)
+            if url.startswith(GEOCODING_URL):
+                return {
+                    "results": [
+                        {
+                            "name": "Istanbul",
+                            "country": "Türkiye",
+                            "latitude": 41.0138,
+                            "longitude": 28.9497,
+                        }
+                    ]
+                }
+            if url.startswith(FORECAST_URL):
+                return {
+                    "daily": {
+                        "time": ["2026-06-12", "2026-06-13"],
+                        "weather_code": [2, 61],
+                        "temperature_2m_max": [28.0, 24.0],
+                        "temperature_2m_min": [18.0, 16.0],
+                        "precipitation_probability_max": [20, 75],
+                        "wind_speed_10m_max": [12.5, 22.0],
+                    }
+                }
+            self.fail(f"Unexpected URL: {url}")
+
+        forecast = WeatherService(fake_fetcher).get_daily_forecast(
+            "Istanbul",
+            forecast_days=7,
+        )
+
+        self.assertEqual(len(forecast), 2)
+        self.assertEqual(forecast[0].forecast_date, date(2026, 6, 12))
+        self.assertEqual(forecast[0].temperature_celsius, 23.0)
+        self.assertEqual(forecast[0].minimum_temperature_celsius, 18.0)
+        self.assertEqual(forecast[0].maximum_temperature_celsius, 28.0)
+        self.assertEqual(forecast[1].condition, "Rainy")
+
+        query = parse_qs(urlparse(requested_urls[1]).query)
+        self.assertEqual(query["forecast_days"], ["7"])
+        self.assertIn("temperature_2m_max", query["daily"][0])
+        self.assertEqual(query["timezone"], ["auto"])
+
+    def test_invalid_forecast_day_count_is_rejected_before_api_call(self) -> None:
+        calls = 0
+
+        def fake_fetcher(_: str) -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            return {}
+
+        with self.assertRaisesRegex(WeatherServiceError, "between 1 and 16"):
+            WeatherService(fake_fetcher).get_daily_forecast(
+                "Istanbul",
+                forecast_days=17,
+            )
+
+        self.assertEqual(calls, 0)
+
+    def test_weather_for_date_selects_matching_daily_forecast(self) -> None:
+        responses = iter(
+            [
+                {
+                    "results": [
+                        {
+                            "name": "Istanbul",
+                            "country": "Türkiye",
+                            "latitude": 41.0138,
+                            "longitude": 28.9497,
+                        }
+                    ]
+                },
+                {
+                    "daily": {
+                        "time": ["2026-06-12", "2026-06-13"],
+                        "weather_code": [0, 61],
+                        "temperature_2m_max": [28, 22],
+                        "temperature_2m_min": [18, 14],
+                        "precipitation_probability_max": [10, 80],
+                        "wind_speed_10m_max": [8, 20],
+                    }
+                },
+            ]
+        )
+
+        weather = WeatherService(
+            lambda _: next(responses)
+        ).get_weather_for_date(
+            "Istanbul",
+            date(2026, 6, 13),
+        )
+
+        self.assertEqual(weather.forecast_date, date(2026, 6, 13))
+        self.assertEqual(weather.condition, "Rainy")
+        self.assertEqual(weather.temperature_celsius, 18)
+
+    def test_weather_for_unavailable_date_is_rejected(self) -> None:
+        responses = iter(
+            [
+                {
+                    "results": [
+                        {
+                            "name": "Istanbul",
+                            "country": "Türkiye",
+                            "latitude": 41.0138,
+                            "longitude": 28.9497,
+                        }
+                    ]
+                },
+                {
+                    "daily": {
+                        "time": ["2026-06-12"],
+                        "weather_code": [0],
+                        "temperature_2m_max": [28],
+                        "temperature_2m_min": [18],
+                        "precipitation_probability_max": [10],
+                        "wind_speed_10m_max": [8],
+                    }
+                },
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            WeatherServiceError,
+            "No forecast is available",
+        ):
+            WeatherService(lambda _: next(responses)).get_weather_for_date(
+                "Istanbul",
+                date(2026, 6, 20),
+            )
+
+    def test_incomplete_daily_forecast_is_rejected(self) -> None:
+        responses = iter(
+            [
+                {
+                    "results": [
+                        {
+                            "name": "Istanbul",
+                            "country": "Türkiye",
+                            "latitude": 41.0138,
+                            "longitude": 28.9497,
+                        }
+                    ]
+                },
+                {
+                    "daily": {
+                        "time": ["2026-06-12"],
+                        "temperature_2m_max": [28.0],
+                    }
+                },
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            WeatherServiceError,
+            "incomplete daily weather",
+        ):
+            WeatherService(lambda _: next(responses)).get_daily_forecast(
+                "Istanbul"
+            )
 
 
 if __name__ == "__main__":

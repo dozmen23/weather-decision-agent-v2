@@ -1,6 +1,7 @@
 """Streamlit interface for the Weather Decision Agent."""
 
 from collections.abc import Iterable
+from datetime import date, timedelta
 
 import streamlit as st
 
@@ -30,6 +31,31 @@ ACTION_LABELS = {
     AgentAction.STOP_NO_RESULT: "Güvenli öneri bulunamadığı için duruldu",
 }
 
+TURKISH_DAY_NAMES = (
+    "Pazartesi",
+    "Salı",
+    "Çarşamba",
+    "Perşembe",
+    "Cuma",
+    "Cumartesi",
+    "Pazar",
+)
+
+TURKISH_MONTH_NAMES = (
+    "Ocak",
+    "Şubat",
+    "Mart",
+    "Nisan",
+    "Mayıs",
+    "Haziran",
+    "Temmuz",
+    "Ağustos",
+    "Eylül",
+    "Ekim",
+    "Kasım",
+    "Aralık",
+)
+
 
 def main() -> None:
     """Render the complete Streamlit application."""
@@ -58,6 +84,7 @@ def main() -> None:
                 city=form_values["city"],
                 preferences=preferences,
                 recommendation_limit=form_values["recommendation_limit"],
+                target_date=form_values["target_date"],
             )
     except (
         ActivityCatalogError,
@@ -124,6 +151,24 @@ def format_trace_action(action: AgentAction) -> str:
     return ACTION_LABELS.get(action, action.value)
 
 
+def get_forecast_date_bounds(
+    today: date | None = None,
+) -> tuple[date, date]:
+    """Return the inclusive seven-day selection window."""
+    first_day = today or date.today()
+    return first_day, first_day + timedelta(days=6)
+
+
+def format_forecast_date(forecast_date: date) -> str:
+    """Return a locale-independent Turkish date label."""
+    return (
+        f"{forecast_date.day} "
+        f"{TURKISH_MONTH_NAMES[forecast_date.month - 1]} "
+        f"{forecast_date.year}, "
+        f"{TURKISH_DAY_NAMES[forecast_date.weekday()]}"
+    )
+
+
 def _render_header() -> None:
     st.title("Weather Decision Agent")
     st.markdown(
@@ -146,6 +191,17 @@ def _render_preference_form(
         st.header("Tercihler")
         with st.form("recommendation_form"):
             city = st.text_input("Şehir", value="Istanbul")
+            first_forecast_date, last_forecast_date = (
+                get_forecast_date_bounds()
+            )
+            target_date = st.date_input(
+                "Planlanan gün",
+                value=first_forecast_date,
+                min_value=first_forecast_date,
+                max_value=last_forecast_date,
+                format="DD/MM/YYYY",
+                help="Bugün dahil önümüzdeki yedi günden birini seç.",
+            )
             preferred_activity_type = st.selectbox(
                 "Tercih edilen aktivite türü",
                 options=activity_types,
@@ -202,6 +258,7 @@ def _render_preference_form(
 
     return {
         "city": city.strip(),
+        "target_date": target_date,
         "recommendation_limit": recommendation_limit,
         "use_llm": use_llm,
         "preferences": {
@@ -222,7 +279,7 @@ def _render_empty_state() -> None:
     columns = st.columns(3)
     columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
     columns[1].metric("Evaluation kontrolleri", "6")
-    columns[2].metric("Otomatik test", "54")
+    columns[2].metric("Otomatik test", "64 başarılı")
 
 
 def _render_workflow_result(result: RecommendationWorkflowResult) -> None:
@@ -261,9 +318,28 @@ def _render_workflow_result(result: RecommendationWorkflowResult) -> None:
 
 
 def _render_weather(weather) -> None:
-    st.subheader(f"Güncel hava: {weather.city}")
+    if weather.forecast_date is None:
+        heading = f"Güncel hava: {weather.city}"
+        temperature_label = f"{weather.temperature_celsius:.1f} °C"
+    else:
+        heading = (
+            f"{format_forecast_date(weather.forecast_date)} tahmini: "
+            f"{weather.city}"
+        )
+        if (
+            weather.minimum_temperature_celsius is not None
+            and weather.maximum_temperature_celsius is not None
+        ):
+            temperature_label = (
+                f"{weather.minimum_temperature_celsius:.1f} – "
+                f"{weather.maximum_temperature_celsius:.1f} °C"
+            )
+        else:
+            temperature_label = f"{weather.temperature_celsius:.1f} °C"
+
+    st.subheader(heading)
     columns = st.columns(4)
-    columns[0].metric("Sıcaklık", f"{weather.temperature_celsius:.1f} °C")
+    columns[0].metric("Sıcaklık", temperature_label)
     columns[1].metric(
         "Yağış ihtimali",
         f"%{weather.precipitation_probability_percent}",

@@ -2,6 +2,7 @@
 
 import json
 import unittest
+from datetime import date
 from typing import Any
 
 from app.agent.decision_agent import DecisionAgent
@@ -173,6 +174,64 @@ class LLMServiceTests(unittest.TestCase):
         self.assertEqual(report.verdict, LLMJudgeVerdict.APPROVE)
         self.assertEqual(report.confidence, 0.92)
         self.assertEqual(client.calls[0]["schema_name"], "llm_judge_report")
+
+    def test_forecast_facts_are_sent_to_both_llm_services(self) -> None:
+        self.result.weather.forecast_date = date(2026, 6, 13)
+        self.result.weather.minimum_temperature_celsius = 18.8
+        self.result.weather.maximum_temperature_celsius = 20.4
+        explanation_client = FakeStructuredLLMClient(
+            [
+                {
+                    "summary": "Doğrulanmış öneri özeti.",
+                    "weather_context": "13 Haziran hava tahmini.",
+                    "recommendation_details": [
+                        {
+                            "activity_name": "Park Walk",
+                            "explanation": "Doğrulanmış açıklama.",
+                        }
+                    ],
+                    "fallback_note": "",
+                }
+            ]
+        )
+        judge_client = FakeStructuredLLMClient(
+            [
+                {
+                    "verdict": "approve",
+                    "confidence": 0.9,
+                    "rationale": "Tahmin bilgileri tutarlı.",
+                    "concerns": [],
+                }
+            ]
+        )
+
+        ExplanationService(explanation_client).generate(
+            self.result,
+            self.preferences,
+            self.evaluation,
+        )
+        LLMJudgeService(judge_client).evaluate(
+            self.result,
+            self.preferences,
+            self.evaluation,
+        )
+
+        for client in (explanation_client, judge_client):
+            weather_context = json.loads(
+                client.calls[0]["user_prompt"]
+            )["weather"]
+            self.assertEqual(
+                weather_context["forecast_date"],
+                "2026-06-13",
+            )
+            self.assertEqual(
+                weather_context["minimum_temperature_celsius"],
+                18.8,
+            )
+            self.assertEqual(
+                weather_context["maximum_temperature_celsius"],
+                20.4,
+            )
 
     def test_judge_cannot_approve_deterministic_rejection(self) -> None:
         self.result.recommendations[0].score = 99

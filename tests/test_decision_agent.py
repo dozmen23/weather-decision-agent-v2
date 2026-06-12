@@ -1,6 +1,7 @@
 """Tests for the autonomous decision loop."""
 
 import unittest
+from datetime import date
 
 from app.agent.decision_agent import DecisionAgent
 from app.agent.planner import AgentAction
@@ -13,9 +14,19 @@ class StubWeatherTool:
     def __init__(self, weather: WeatherData) -> None:
         self.weather = weather
         self.requested_cities: list[str] = []
+        self.requested_dates: list[date] = []
 
     def get_current_weather(self, city: str) -> WeatherData:
         self.requested_cities.append(city)
+        return self.weather
+
+    def get_weather_for_date(
+        self,
+        city: str,
+        target_date: date,
+    ) -> WeatherData:
+        self.requested_cities.append(city)
+        self.requested_dates.append(target_date)
         return self.weather
 
 
@@ -153,6 +164,32 @@ class DecisionAgentTests(unittest.TestCase):
         self.assertEqual(result.recommendations, [])
         self.assertTrue(result.used_safe_fallback)
         self.assertEqual(result.trace[-1].action, AgentAction.STOP_NO_RESULT)
+
+    def test_agent_uses_selected_forecast_date(self) -> None:
+        selected_date = date(2026, 6, 15)
+        weather_tool = StubWeatherTool(
+            WeatherData(
+                "Istanbul",
+                22.5,
+                5,
+                5,
+                "Clear sky",
+                forecast_date=selected_date,
+            )
+        )
+
+        result = DecisionAgent(
+            weather_tool,
+            StubActivityTool([self.park_walk]),
+        ).run(
+            "Istanbul",
+            self.preferences,
+            target_date=selected_date,
+        )
+
+        self.assertEqual(weather_tool.requested_dates, [selected_date])
+        self.assertEqual(result.weather.forecast_date, selected_date)
+        self.assertIn(selected_date.isoformat(), result.trace[0].detail)
 
 
 if __name__ == "__main__":

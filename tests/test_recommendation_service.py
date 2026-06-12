@@ -1,6 +1,7 @@
 """Tests for the end-to-end recommendation workflow service."""
 
 import unittest
+from datetime import date
 from typing import Any
 
 from app.agent.decision_agent import AgentResult, DecisionAgent
@@ -52,6 +53,20 @@ class FakeStructuredLLMClient:
 class StubWeatherTool:
     def get_current_weather(self, _: str) -> WeatherData:
         return WeatherData("Istanbul", 22.5, 5, 5, "Clear sky")
+
+    def get_weather_for_date(
+        self,
+        _: str,
+        target_date: date,
+    ) -> WeatherData:
+        return WeatherData(
+            "Istanbul",
+            22.5,
+            5,
+            5,
+            "Clear sky",
+            forecast_date=target_date,
+        )
 
 
 class StubActivityTool:
@@ -167,6 +182,23 @@ class RecommendationServiceTests(unittest.TestCase):
         self.assertIsNone(result.explanation)
         self.assertIsNone(result.llm_judgment)
         self.assertEqual(llm_client.schemas, [])
+
+    def test_workflow_passes_selected_date_to_agent(self) -> None:
+        selected_date = date(2026, 6, 15)
+        service = RecommendationService(
+            agent=DecisionAgent(StubWeatherTool(), StubActivityTool())
+        )
+
+        result = service.recommend(
+            "Istanbul",
+            self.preferences,
+            target_date=selected_date,
+        )
+
+        self.assertEqual(
+            result.agent_result.weather.forecast_date,
+            selected_date,
+        )
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """End-to-end orchestration for agent, evaluation, and optional LLM output."""
 
 from dataclasses import dataclass
+from datetime import date
 
 from app.agent.decision_agent import AgentResult, DecisionAgent
 from app.llm.client import StructuredLLMClient
@@ -50,13 +51,22 @@ class RecommendationService:
         city: str,
         preferences: UserPreferences,
         recommendation_limit: int = 3,
+        target_date: date | None = None,
     ) -> RecommendationWorkflowResult:
         """Produce, verify, and optionally explain recommendations."""
-        agent_result = self.agent.run(
-            city,
-            preferences,
-            recommendation_limit=recommendation_limit,
-        )
+        if target_date is None:
+            agent_result = self.agent.run(
+                city,
+                preferences,
+                recommendation_limit=recommendation_limit,
+            )
+        else:
+            agent_result = self.agent.run(
+                city,
+                preferences,
+                recommendation_limit=recommendation_limit,
+                target_date=target_date,
+            )
         deterministic_report = self.evaluator.evaluate(
             agent_result,
             preferences,

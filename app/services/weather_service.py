@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -43,13 +44,48 @@ class WeatherService:
 
     def get_current_weather(self, city: str) -> WeatherData:
         """Return current normalized weather for the requested city."""
-        normalized_city = city.strip()
-        if len(normalized_city) < 2:
-            raise WeatherServiceError("City name must contain at least two characters.")
-
-        location = self._resolve_location(normalized_city)
+        location = self._resolve_location(self._normalize_city(city))
         forecast = self._fetch_forecast(location)
         return self._normalize_weather(location, forecast)
+
+    def get_daily_forecast(
+        self,
+        city: str,
+        forecast_days: int = 7,
+    ) -> list[WeatherData]:
+        """Return normalized daily forecasts for the requested city."""
+        if not 1 <= forecast_days <= 16:
+            raise WeatherServiceError(
+                "Forecast day count must be between 1 and 16."
+            )
+
+        location = self._resolve_location(self._normalize_city(city))
+        forecast = self._fetch_daily_forecast(location, forecast_days)
+        return self._normalize_daily_forecast(location, forecast)
+
+    def get_weather_for_date(
+        self,
+        city: str,
+        target_date: date,
+    ) -> WeatherData:
+        """Return the daily forecast matching a specific date."""
+        forecasts = self.get_daily_forecast(city, forecast_days=7)
+        for weather in forecasts:
+            if weather.forecast_date == target_date:
+                return weather
+
+        raise WeatherServiceError(
+            f"No forecast is available for {target_date.isoformat()}."
+        )
+
+    @staticmethod
+    def _normalize_city(city: str) -> str:
+        normalized_city = city.strip()
+        if len(normalized_city) < 2:
+            raise WeatherServiceError(
+                "City name must contain at least two characters."
+            )
+        return normalized_city
 
     def _resolve_location(self, city: str) -> Location:
         query = urlencode(
@@ -98,6 +134,27 @@ class WeatherService:
         )
         return self._json_fetcher(f"{FORECAST_URL}?{query}")
 
+    def _fetch_daily_forecast(
+        self,
+        location: Location,
+        forecast_days: int,
+    ) -> dict[str, Any]:
+        query = urlencode(
+            {
+                "latitude": location.latitude,
+                "longitude": location.longitude,
+                "daily": (
+                    "weather_code,temperature_2m_max,temperature_2m_min,"
+                    "precipitation_probability_max,wind_speed_10m_max"
+                ),
+                "forecast_days": forecast_days,
+                "temperature_unit": "celsius",
+                "wind_speed_unit": "kmh",
+                "timezone": "auto",
+            }
+        )
+        return self._json_fetcher(f"{FORECAST_URL}?{query}")
+
     @staticmethod
     def _normalize_weather(
         location: Location,
@@ -124,6 +181,68 @@ class WeatherService:
             raise WeatherServiceError(
                 "Forecast service returned incomplete current weather data."
             ) from exc
+
+    @staticmethod
+    def _normalize_daily_forecast(
+        location: Location,
+        forecast: dict[str, Any],
+    ) -> list[WeatherData]:
+        daily = forecast.get("daily")
+        if not isinstance(daily, dict):
+            raise WeatherServiceError(
+                "Forecast service did not return daily weather data."
+            )
+
+        required_fields = (
+            "time",
+            "weather_code",
+            "temperature_2m_max",
+            "temperature_2m_min",
+            "precipitation_probability_max",
+            "wind_speed_10m_max",
+        )
+        values = [daily.get(field) for field in required_fields]
+        if (
+            any(not isinstance(value, list) for value in values)
+            or not values[0]
+            or len({len(value) for value in values}) != 1
+        ):
+            raise WeatherServiceError(
+                "Forecast service returned incomplete daily weather data."
+            )
+
+        forecasts: list[WeatherData] = []
+        try:
+            for (
+                day_text,
+                weather_code,
+                maximum_temperature,
+                minimum_temperature,
+                precipitation_probability,
+                wind_speed,
+            ) in zip(*values):
+                minimum = float(minimum_temperature)
+                maximum = float(maximum_temperature)
+                forecasts.append(
+                    WeatherData(
+                        city=location.display_name,
+                        temperature_celsius=(minimum + maximum) / 2,
+                        precipitation_probability_percent=int(
+                            precipitation_probability
+                        ),
+                        wind_speed_kmh=float(wind_speed),
+                        condition=_weather_condition(int(weather_code)),
+                        forecast_date=date.fromisoformat(str(day_text)),
+                        minimum_temperature_celsius=minimum,
+                        maximum_temperature_celsius=maximum,
+                    )
+                )
+        except (TypeError, ValueError) as exc:
+            raise WeatherServiceError(
+                "Forecast service returned invalid daily weather data."
+            ) from exc
+
+        return forecasts
 
 
 def _fetch_json(url: str) -> dict[str, Any]:
