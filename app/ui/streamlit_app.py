@@ -1,6 +1,7 @@
 """Streamlit interface for the Weather Decision Agent."""
 
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import date, timedelta
 
 import streamlit as st
@@ -12,8 +13,13 @@ from app.llm.factory import (
     create_llm_client,
     load_llm_settings,
 )
+from app.models.recommendation_history import FeedbackValue
 from app.models.user_preferences import UserPreferences
 from app.services.activity_service import ActivityCatalogError, ActivityService
+from app.services.history_service import (
+    RecommendationHistoryError,
+    RecommendationHistoryRepository,
+)
 from app.services.recommendation_service import (
     RecommendationService,
     RecommendationWorkflowResult,
@@ -27,6 +33,7 @@ ACTION_LABELS = {
     AgentAction.LOAD_RELATED_ALTERNATIVES: "Yakın kapalı alternatifler arandı",
     AgentAction.LOAD_BROADER_CANDIDATES: "Aktivite araması genişletildi",
     AgentAction.LOAD_SAFE_ALTERNATIVES: "Güvenli kapalı alan alternatifleri arandı",
+    AgentAction.LOAD_GENERATED_CANDIDATES: "LLM aday aktiviteleri üretildi",
     AgentAction.SCORE_CANDIDATES: "Adaylar kurallardan geçirilip puanlandı",
     AgentAction.FINALIZE: "Son öneriler hazırlandı",
     AgentAction.STOP_NO_RESULT: "Güvenli öneri bulunamadığı için duruldu",
@@ -69,14 +76,23 @@ def main() -> None:
     _render_header()
 
     activity_types = get_activity_types()
+    history_repository = RecommendationHistoryRepository()
     form_values = _render_preference_form(activity_types)
     if form_values is None:
-        _render_empty_state()
+        last_result = st.session_state.get("last_workflow_result")
+        if isinstance(last_result, RecommendationWorkflowResult):
+            _render_workflow_result(last_result, history_repository)
+            _render_recent_history(history_repository)
+        else:
+            _render_empty_state()
         return
 
     try:
         preferences = build_preferences(**form_values["preferences"])
-        service = build_recommendation_service(form_values["use_llm"])
+        service = build_recommendation_service(
+            form_values["use_llm"],
+            history_repository=history_repository,
+        )
 
         with st.spinner(
             "Hava verisi alınıyor ve agent karar planını çalıştırıyor..."
@@ -90,6 +106,7 @@ def main() -> None:
     except (
         ActivityCatalogError,
         ConfigurationError,
+        RecommendationHistoryError,
         LLMServiceError,
         WeatherServiceError,
         ValueError,
@@ -97,7 +114,9 @@ def main() -> None:
         st.error(f"İşlem tamamlanamadı: {exc}")
         return
 
-    _render_workflow_result(result)
+    st.session_state["last_workflow_result"] = result
+    _render_workflow_result(result, history_repository)
+    _render_recent_history(history_repository)
 
 
 def get_activity_types() -> list[str]:
@@ -136,14 +155,18 @@ def build_preferences(
     )
 
 
-def build_recommendation_service(use_llm: bool) -> RecommendationService:
+def build_recommendation_service(
+    use_llm: bool,
+    history_repository: RecommendationHistoryRepository | None = None,
+) -> RecommendationService:
     """Create a workflow service with optional configured LLM enrichment."""
     if not use_llm:
-        return RecommendationService()
+        return RecommendationService(history_repository=history_repository)
 
     settings = load_llm_settings()
     return RecommendationService(
-        llm_client=create_llm_client(settings)
+        llm_client=create_llm_client(settings),
+        history_repository=history_repository,
     )
 
 
@@ -180,8 +203,8 @@ def _render_header() -> None:
         """
     )
     st.caption(
-        "Karar kuralları ve puanlar deterministiktir. LLM yalnızca açıklama "
-        "ve ikinci görüş üretir."
+        "Karar kuralları ve puanlar deterministiktir. LLM yalnızca aday, "
+        "açıklama ve ikinci görüş desteği verir."
     )
 
 
@@ -238,11 +261,12 @@ def _render_preference_form(
                 value=3,
             )
             use_llm = st.checkbox(
-                "LLM açıklaması ve ikinci hakem",
+                "LLM aday üretimi, açıklaması ve ikinci hakem",
                 value=True,
                 help=(
-                    "Açıldığında doğrulanmış sonuçlar OpenAI ile açıklanır ve "
-                    "ikinci bir yapılandırılmış değerlendirmeden geçer."
+                    "Açıldığında güvenli sonuç bulunamazsa aday üretir; "
+                    "doğrulanmış sonuçları açıklar ve ikinci değerlendirme "
+                    "yapar."
                 ),
             )
             submitted = st.form_submit_button(
@@ -280,10 +304,13 @@ def _render_empty_state() -> None:
     columns = st.columns(3)
     columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
     columns[1].metric("Evaluation kontrolleri", "6")
-    columns[2].metric("Otomatik test", "68 başarılı")
+    columns[2].metric("Otomatik test", "84 başarılı")
 
 
-def _render_workflow_result(result: RecommendationWorkflowResult) -> None:
+def _render_workflow_result(
+    result: RecommendationWorkflowResult,
+    history_repository: RecommendationHistoryRepository,
+) -> None:
     agent_result = result.agent_result
     evaluation = result.deterministic_evaluation
 
@@ -308,6 +335,8 @@ def _render_workflow_result(result: RecommendationWorkflowResult) -> None:
                     else None
                 ),
             )
+
+    _render_feedback_controls(result, history_repository)
 
     left_column, right_column = st.columns(2)
     with left_column:
@@ -339,7 +368,7 @@ def _render_weather(weather) -> None:
             temperature_label = f"{weather.temperature_celsius:.1f} °C"
 
     st.subheader(heading)
-    columns = st.columns(4)
+    columns = st.columns(5)
     columns[0].metric("Sıcaklık", temperature_label)
     columns[1].metric(
         "Yağış ihtimali",
@@ -347,6 +376,7 @@ def _render_weather(weather) -> None:
     )
     columns[2].metric("Rüzgâr", f"{weather.wind_speed_kmh:.1f} km/h")
     columns[3].metric("Durum", weather.condition)
+    columns[4].metric("Risk", weather.severity_level.value)
 
 
 def _render_recommendation_card(
@@ -385,8 +415,130 @@ def _render_recommendation_card(
                 + recommendation.reasoning
             )
 
+        breakdown = recommendation.score_breakdown
+        score_columns = st.columns(4)
+        score_columns[0].metric(
+            "Hava güvenliği",
+            f"{breakdown.weather_safety:.1f}/30",
+        )
+        score_columns[1].metric(
+            "Tercih eşleşmesi",
+            f"{breakdown.preference_match:.1f}/35",
+        )
+        score_columns[2].metric(
+            "Konfor",
+            f"{breakdown.comfort_match:.1f}/20",
+        )
+        score_columns[3].metric(
+            "Pratiklik",
+            f"{breakdown.practicality:.1f}/15",
+        )
+
         for warning in recommendation.warnings:
             st.warning(warning)
+
+
+def _render_feedback_controls(
+    result: RecommendationWorkflowResult,
+    history_repository: RecommendationHistoryRepository,
+) -> None:
+    record = result.history_record
+    if record is None:
+        return
+
+    st.subheader("Geri bildirim")
+    if record.feedback is not None:
+        st.caption(f"Kaydedilen geri bildirim: {record.feedback.value}")
+
+    note = st.text_input(
+        "Kısa not",
+        value=record.feedback_note,
+        key=f"feedback_note_{record.record_id}",
+        placeholder="İstersen bu önerinin neden iyi/kötü olduğunu yaz.",
+    )
+    positive_column, negative_column = st.columns(2)
+
+    if positive_column.button(
+        "Beğendim",
+        key=f"feedback_positive_{record.record_id}",
+        use_container_width=True,
+    ):
+        _store_feedback(
+            result,
+            history_repository,
+            FeedbackValue.POSITIVE,
+            note,
+        )
+
+    if negative_column.button(
+        "Beğenmedim",
+        key=f"feedback_negative_{record.record_id}",
+        use_container_width=True,
+    ):
+        _store_feedback(
+            result,
+            history_repository,
+            FeedbackValue.NEGATIVE,
+            note,
+        )
+
+
+def _store_feedback(
+    result: RecommendationWorkflowResult,
+    history_repository: RecommendationHistoryRepository,
+    feedback: FeedbackValue,
+    note: str,
+) -> None:
+    if result.history_record is None:
+        return
+
+    try:
+        updated_record = history_repository.update_feedback(
+            result.history_record.record_id,
+            feedback,
+            note,
+        )
+    except RecommendationHistoryError as exc:
+        st.error(f"Geri bildirim kaydedilemedi: {exc}")
+        return
+
+    st.session_state["last_workflow_result"] = replace(
+        result,
+        history_record=updated_record,
+    )
+    st.success("Geri bildirim kaydedildi.")
+
+
+def _render_recent_history(
+    history_repository: RecommendationHistoryRepository,
+) -> None:
+    try:
+        recent_records = history_repository.list_recent(limit=5)
+    except RecommendationHistoryError as exc:
+        st.warning(f"Geçmiş okunamadı: {exc}")
+        return
+
+    if not recent_records:
+        return
+
+    st.subheader("Son çalışmalar")
+    with st.expander("Öneri geçmişi", expanded=False):
+        for record in recent_records:
+            recommendation_names = ", ".join(
+                item.activity_name for item in record.recommendations
+            )
+            if not recommendation_names:
+                recommendation_names = "Öneri yok"
+
+            feedback_label = (
+                record.feedback.value if record.feedback is not None else "yok"
+            )
+            st.markdown(
+                f"**{record.city} · {record.status}**"
+            )
+            st.caption(
+                f"{recommendation_names} | feedback: {feedback_label}"
+            )
 
 
 def _render_evaluation(result: RecommendationWorkflowResult) -> None:

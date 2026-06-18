@@ -3,6 +3,25 @@
 Weather Decision Agent, hava durumu ve kullanıcı tercihlerini analiz ederek
 uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 
+## Mevcut Kabiliyetler
+
+- Open-Meteo üzerinden güncel hava durumu ve yedi günlük tahmin verisi alır.
+- Kullanıcının şehir, tarih, aktivite ve konfor tercihlerini değerlendirir.
+- Aktivite kataloğunu deterministik güvenlik kurallarından geçirir.
+- Önce tam eşleşmeleri, ardından yakın kapalı alan alternatiflerini dener.
+- Hava koşullarından `LOW`, `MODERATE`, `HIGH`, `SEVERE` risk seviyesi üretir.
+- Önerileri hava güvenliği, tercih eşleşmesi, konfor ve pratiklik kırılımıyla
+  puanlar.
+- Güvenli bir sonuç bulunamazsa kontrollü şekilde durur.
+- Katalog güvenli sonuç bulamazsa LLM'den kontrollü aktivite adayları alabilir;
+  bu adaylar da aynı deterministik güvenlik kurallarından geçmeden önerilmez.
+- Opsiyonel OpenAI entegrasyonu ile sonucu açıklar ve ikinci hakem görüşü üretir.
+- Streamlit arayüzü üzerinden öneri akışını çalıştırır.
+- Reproducible evaluation senaryolarıyla exact match, fallback ve güvenli durma
+  davranışlarını test eder.
+- Opsiyonel JSONL history repository ile öneri geçmişi ve kullanıcı feedback'i
+  saklar; Streamlit üzerinden beğendim/beğenmedim geri bildirimi alınabilir.
+
 ## Proje Yapısı
 
 - `app/`: Uygulamanın Python kodları
@@ -13,14 +32,21 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 
 ## Durum
 
-Projenin temiz başlangıç yapısı oluşturuldu.
+Proje, çalışan bir deterministik öneri akışına sahiptir. Ana karar mekanizması
+LLM'e bırakılmaz; LLM yalnızca açıklama, aday üretimi ve değerlendirme desteği
+için kullanılır.
 
-İlk domain modelleri eklendi:
+Temel domain modelleri:
 
 - `WeatherData`: Normalize edilmiş hava durumu bilgisi
 - `UserPreferences`: Kullanıcı tercihleri ve sınırları
 - `Activity`: Önerilebilecek aktivite adayı
 - `Recommendation`: Agent tarafından üretilecek öneri çıktısı
+
+Yakın vadeli geliştirme yönü:
+
+- Streamlit arayüzünde kullanıcı ve geliştirici modlarını ayırmak
+- geçmiş ekranını kullanıcı/geliştirici mod ayrımına göre düzenlemek
 
 ## Yerel Kurulum
 
@@ -37,4 +63,10 @@ Web arayüzünü başlatmak için:
 
 ```bash
 streamlit run streamlit_app.py
+```
+
+Testleri çalıştırmak için:
+
+```bash
+pytest
 ```

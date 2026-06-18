@@ -2,10 +2,14 @@
 
 import unittest
 from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from app.agent.planner import AgentAction
 from app.models.user_preferences import UserPreferences
+from app.services.history_service import RecommendationHistoryRepository
 from app.ui.streamlit_app import (
+    build_recommendation_service,
     build_preferences,
     format_forecast_date,
     format_trace_action,
@@ -51,6 +55,23 @@ class UIHelperTests(unittest.TestCase):
             format_trace_action(AgentAction.LOAD_SAFE_ALTERNATIVES),
             "Güvenli kapalı alan alternatifleri arandı",
         )
+        self.assertEqual(
+            format_trace_action(AgentAction.LOAD_GENERATED_CANDIDATES),
+            "LLM aday aktiviteleri üretildi",
+        )
+
+    def test_service_builder_accepts_history_repository_without_llm(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            repository = RecommendationHistoryRepository(
+                Path(temporary_directory) / "history.jsonl"
+            )
+
+            service = build_recommendation_service(
+                use_llm=False,
+                history_repository=repository,
+            )
+
+            self.assertIs(service.history_repository, repository)
 
     def test_forecast_date_bounds_cover_seven_days(self) -> None:
         first_day, last_day = get_forecast_date_bounds(

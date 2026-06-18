@@ -15,15 +15,57 @@ class EvaluationRunnerTests(unittest.TestCase):
     def test_default_scenarios_all_pass(self) -> None:
         report = EvaluationRunner().run()
 
-        self.assertEqual(report.summary.total_cases, 8)
-        self.assertEqual(report.summary.passed_cases, 8)
+        self.assertEqual(report.summary.total_cases, 12)
+        self.assertEqual(report.summary.passed_cases, 12)
         self.assertEqual(report.summary.scenario_pass_rate_percent, 100.0)
         self.assertEqual(report.summary.system_validity_rate_percent, 100.0)
         self.assertEqual(
             report.summary.recommendation_success_rate_percent,
-            100.0,
+            91.67,
         )
-        self.assertEqual(report.summary.evaluator_approval_rate_percent, 100.0)
+        self.assertEqual(report.summary.evaluator_approval_rate_percent, 91.67)
+
+    def test_inline_catalog_can_exercise_no_recommendation_path(self) -> None:
+        case = self._base_case()
+        case["id"] = "inline-no-result"
+        case["weather"] = {
+            "city": "Istanbul",
+            "temperature_celsius": -8,
+            "precipitation_probability_percent": 90,
+            "wind_speed_kmh": 55,
+            "condition": "Thunderstorm",
+        }
+        case["preferences"] = {
+            "preferred_activity_type": "running",
+            "prefers_outdoor": True,
+            "min_temperature_celsius": 5,
+            "max_temperature_celsius": 25,
+            "max_precipitation_probability_percent": 30,
+            "max_wind_speed_kmh": 20,
+        }
+        case["activities"] = [
+            {
+                "name": "Unsafe Run",
+                "activity_type": "running",
+                "is_outdoor": True,
+                "min_temperature_celsius": 10,
+                "max_temperature_celsius": 28,
+                "max_precipitation_probability_percent": 20,
+                "max_wind_speed_kmh": 20,
+            }
+        ]
+        case["expected"] = {
+            "status": "no_recommendation",
+            "top_activity": None,
+            "used_safe_fallback": True,
+            "verdict": "no_recommendation",
+            "required_actions": ["load_safe_alternatives", "stop_no_result"],
+        }
+
+        report = self._run_temporary_cases([case])
+
+        self.assertEqual(report.summary.passed_cases, 1)
+        self.assertEqual(report.scenarios[0].actual_top_activity, None)
 
     def test_wrong_expectation_is_reported_as_scenario_failure(self) -> None:
         case = self._base_case()

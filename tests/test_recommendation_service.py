@@ -2,6 +2,8 @@
 
 import unittest
 from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from app.agent.decision_agent import AgentResult, DecisionAgent
@@ -10,6 +12,7 @@ from app.models.activity import Activity
 from app.models.recommendation import Recommendation
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
+from app.services.history_service import RecommendationHistoryRepository
 from app.services.recommendation_service import RecommendationService
 
 
@@ -27,12 +30,15 @@ class FakeStructuredLLMClient:
     ) -> dict[str, Any]:
         self.schemas.append(schema_name)
         if schema_name == "recommendation_explanation":
+            activity_name = "Park Walk"
+            if "Indoor Recovery Run" in user_prompt:
+                activity_name = "Indoor Recovery Run"
             return {
-                "summary": "Park Walk is the best verified option.",
-                "weather_context": "The weather is mild and dry.",
+                "summary": f"{activity_name} is the best verified option.",
+                "weather_context": "The weather was checked.",
                 "recommendation_details": [
                     {
-                        "activity_name": "Park Walk",
+                        "activity_name": activity_name,
                         "explanation": (
                             "It matches the preference and safety limits."
                         ),
@@ -45,6 +51,80 @@ class FakeStructuredLLMClient:
                 "verdict": "approve",
                 "confidence": 0.95,
                 "rationale": "The verified recommendation is relevant and clear.",
+                "concerns": [],
+            }
+        if schema_name == "llm_activity_candidates":
+            return {
+                "activities": [
+                    {
+                        "name": "Indoor Recovery Run",
+                        "activity_type": "running",
+                        "is_outdoor": False,
+                        "min_temperature_celsius": -20,
+                        "max_temperature_celsius": 50,
+                        "max_precipitation_probability_percent": 100,
+                        "max_wind_speed_kmh": 100,
+                        "purpose": "cardio exercise",
+                        "intensity": "moderate",
+                        "duration_minutes": 40,
+                        "cost_level": "low",
+                        "weather_sensitivity": "none",
+                        "requires_reservation": False,
+                        "suitable_for": ["solo", "beginners"],
+                        "tags": ["running", "indoor", "cardio"],
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected schema: {schema_name}")
+
+
+class UnsafeGeneratedActivityLLMClient:
+    def __init__(self) -> None:
+        self.schemas: list[str] = []
+
+    def generate_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        schema_name: str,
+        json_schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.schemas.append(schema_name)
+        if schema_name == "llm_activity_candidates":
+            return {
+                "activities": [
+                    {
+                        "name": "Storm Run",
+                        "activity_type": "running",
+                        "is_outdoor": True,
+                        "min_temperature_celsius": 10,
+                        "max_temperature_celsius": 28,
+                        "max_precipitation_probability_percent": 20,
+                        "max_wind_speed_kmh": 20,
+                        "purpose": "cardio exercise",
+                        "intensity": "high",
+                        "duration_minutes": 45,
+                        "cost_level": "free",
+                        "weather_sensitivity": "high",
+                        "requires_reservation": False,
+                        "suitable_for": ["solo"],
+                        "tags": ["running", "outdoor"],
+                    }
+                ]
+            }
+        if schema_name == "recommendation_explanation":
+            return {
+                "summary": "Güvenli öneri bulunamadı.",
+                "weather_context": "Hava koşulları dış mekan için riskli.",
+                "recommendation_details": [],
+                "fallback_note": "Üretilen adaylar güvenlik kurallarını geçmedi.",
+            }
+        if schema_name == "llm_judge_report":
+            return {
+                "verdict": "approve",
+                "confidence": 0.9,
+                "rationale": "Güvensiz adaylar öneriye çevrilmemiş.",
                 "concerns": [],
             }
         raise AssertionError(f"Unexpected schema: {schema_name}")
@@ -65,6 +145,25 @@ class StubWeatherTool:
             5,
             5,
             "Clear sky",
+            forecast_date=target_date,
+        )
+
+
+class StormWeatherTool:
+    def get_current_weather(self, _: str) -> WeatherData:
+        return WeatherData("Istanbul", 18, 90, 45, "Thunderstorm")
+
+    def get_weather_for_date(
+        self,
+        _: str,
+        target_date: date,
+    ) -> WeatherData:
+        return WeatherData(
+            "Istanbul",
+            18,
+            90,
+            45,
+            "Thunderstorm",
             forecast_date=target_date,
         )
 
@@ -105,6 +204,23 @@ class StubActivityTool:
             activity_type=activity_type,
             is_outdoor=is_outdoor,
         )[:limit]
+
+
+class EmptyActivityTool:
+    def find_candidates(
+        self,
+        activity_type: str | None = None,
+        is_outdoor: bool | None = None,
+    ) -> list[Activity]:
+        return []
+
+    def find_similar_candidates(
+        self,
+        activity_type: str,
+        is_outdoor: bool | None = None,
+        limit: int = 8,
+    ) -> list[Activity]:
+        return []
 
 
 class InvalidAgent:
@@ -210,6 +326,94 @@ class RecommendationServiceTests(unittest.TestCase):
             result.agent_result.weather.forecast_date,
             selected_date,
         )
+
+    def test_workflow_can_store_recommendation_history(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            repository = RecommendationHistoryRepository(
+                Path(temporary_directory) / "history.jsonl"
+            )
+            service = RecommendationService(
+                agent=DecisionAgent(StubWeatherTool(), StubActivityTool()),
+                history_repository=repository,
+            )
+
+            result = service.recommend("Istanbul", self.preferences)
+
+            self.assertIsNotNone(result.history_record)
+            self.assertEqual(result.history_record.city, "Istanbul")
+            self.assertEqual(
+                result.history_record.recommendations[0].activity_name,
+                "Park Walk",
+            )
+            self.assertFalse(result.history_record.used_generated_candidates)
+            self.assertEqual(
+                repository.list_recent()[0].record_id,
+                result.history_record.record_id,
+            )
+
+    def test_llm_generated_activity_is_validated_before_explanation(self) -> None:
+        preferences = UserPreferences(
+            preferred_activity_type="running",
+            prefers_outdoor=True,
+            min_temperature_celsius=10,
+            max_temperature_celsius=28,
+            max_precipitation_probability_percent=40,
+            max_wind_speed_kmh=25,
+        )
+        llm_client = FakeStructuredLLMClient()
+        service = RecommendationService(
+            agent=DecisionAgent(
+                StubWeatherTool(),
+                EmptyActivityTool(),
+            ),
+            llm_client=llm_client,
+        )
+
+        result = service.recommend("Istanbul", preferences)
+
+        self.assertEqual(result.agent_result.status, "completed")
+        self.assertEqual(
+            result.agent_result.recommendations[0].activity.name,
+            "Indoor Recovery Run",
+        )
+        self.assertEqual(
+            llm_client.schemas,
+            [
+                "llm_activity_candidates",
+                "recommendation_explanation",
+                "llm_judge_report",
+            ],
+        )
+        self.assertTrue(
+            result.deterministic_evaluation.system_behavior_valid
+        )
+
+    def test_unsafe_llm_generated_activity_is_not_recommended(self) -> None:
+        preferences = UserPreferences(
+            preferred_activity_type="running",
+            prefers_outdoor=True,
+            min_temperature_celsius=10,
+            max_temperature_celsius=28,
+            max_precipitation_probability_percent=40,
+            max_wind_speed_kmh=25,
+        )
+        llm_client = UnsafeGeneratedActivityLLMClient()
+        service = RecommendationService(
+            agent=DecisionAgent(
+                StormWeatherTool(),
+                EmptyActivityTool(),
+            ),
+            llm_client=llm_client,
+        )
+
+        result = service.recommend("Istanbul", preferences)
+
+        self.assertEqual(result.agent_result.status, "no_recommendation")
+        self.assertEqual(result.agent_result.recommendations, [])
+        self.assertTrue(
+            result.deterministic_evaluation.system_behavior_valid
+        )
+        self.assertIn("llm_activity_candidates", llm_client.schemas)
 
 
 if __name__ == "__main__":

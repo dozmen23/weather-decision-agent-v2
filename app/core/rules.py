@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from app.models.activity import Activity
 from app.models.user_preferences import UserPreferences
-from app.models.weather_data import WeatherData
+from app.models.weather_data import WeatherData, WeatherSeverity
 
 
 @dataclass
@@ -35,6 +35,7 @@ def evaluate_activity(
         warnings.append("Indoor/outdoor setting does not match the user's preference.")
 
     if activity.is_outdoor:
+        _check_weather_severity(weather, failed_rules, warnings)
         _check_temperature(weather, preferences, activity, failed_rules)
         _check_precipitation(weather, preferences, activity, failed_rules)
         _check_wind(weather, preferences, activity, failed_rules)
@@ -44,6 +45,27 @@ def evaluate_activity(
         failed_rules=failed_rules,
         warnings=warnings,
     )
+
+
+def _check_weather_severity(
+    weather: WeatherData,
+    failed_rules: list[str],
+    warnings: list[str],
+) -> None:
+    if weather.severity_level is WeatherSeverity.SEVERE:
+        failed_rules.append(
+            "Weather severity is too high for outdoor activities."
+        )
+        return
+
+    if weather.severity_level is WeatherSeverity.HIGH:
+        warnings.append(
+            "Weather risk is high; a safer indoor alternative may be better."
+        )
+    elif weather.severity_level is WeatherSeverity.MODERATE:
+        warnings.append(
+            "Weather risk is moderate; check conditions before going outside."
+        )
 
 
 def _check_temperature(

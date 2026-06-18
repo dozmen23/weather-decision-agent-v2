@@ -180,11 +180,15 @@ class DeterministicEvaluator:
                 recommendation.activity,
             )
             score_matches = abs(recommendation.score - recalculated.total_score) <= 0.01
+            breakdown_matches = _score_breakdown_matches(
+                recommendation.score_breakdown,
+                recalculated.score_breakdown,
+            )
             score_is_sufficient = (
                 0 <= recommendation.score <= 100
                 and recommendation.score >= self.minimum_recommendation_score
             )
-            if not score_matches or not score_is_sufficient:
+            if not score_matches or not breakdown_matches or not score_is_sufficient:
                 invalid_scores.append(recommendation.activity.name)
 
         is_ranked = scores == sorted(scores, reverse=True)
@@ -195,7 +199,7 @@ class DeterministicEvaluator:
             detail=(
                 "Scores match independent recalculation and ranking order."
                 if passed
-                else "Invalid, weak, altered, or unsorted scores: "
+                else "Invalid, weak, altered, unsorted, or inconsistent scores: "
                 + (", ".join(invalid_scores) or "ranking order")
             ),
         )
@@ -255,3 +259,16 @@ class DeterministicEvaluator:
                 else "Fallback metadata contradicts the decision trace or activities."
             ),
         )
+
+
+def _score_breakdown_matches(left, right) -> bool:
+    return all(
+        abs(getattr(left, field_name) - getattr(right, field_name)) <= 0.01
+        for field_name in (
+            "weather_safety",
+            "preference_match",
+            "comfort_match",
+            "practicality",
+            "total_score",
+        )
+    )

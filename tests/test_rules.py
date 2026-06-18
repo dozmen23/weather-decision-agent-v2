@@ -60,6 +60,26 @@ class ActivityRuleTests(unittest.TestCase):
         self.assertFalse(result.is_eligible)
         self.assertEqual(len(result.failed_rules), 2)
 
+    def test_severe_weather_eliminates_outdoor_activity(self) -> None:
+        permissive_walk = Activity(
+            name="All weather walk",
+            activity_type="walking",
+            is_outdoor=True,
+            min_temperature_celsius=-20,
+            max_temperature_celsius=50,
+            max_precipitation_probability_percent=100,
+            max_wind_speed_kmh=100,
+        )
+        weather = WeatherData("Istanbul", 22, 20, 10, "Thunderstorm")
+
+        result = evaluate_activity(weather, self.preferences, permissive_walk)
+
+        self.assertFalse(result.is_eligible)
+        self.assertIn(
+            "Weather severity is too high for outdoor activities.",
+            result.failed_rules,
+        )
+
     def test_indoor_activity_is_not_eliminated_by_bad_weather(self) -> None:
         museum = Activity(
             name="Museum visit",

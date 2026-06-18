@@ -125,6 +125,7 @@ def _build_judge_context(
             ),
             "wind_speed_kmh": result.weather.wind_speed_kmh,
             "condition": result.weather.condition,
+            "severity_level": result.weather.severity_level.value,
         },
         "preferences": {
             "preferred_activity_type": preferences.preferred_activity_type,
@@ -134,6 +135,19 @@ def _build_judge_context(
             {
                 "activity_name": recommendation.activity.name,
                 "score": recommendation.score,
+                "score_breakdown": {
+                    "weather_safety": (
+                        recommendation.score_breakdown.weather_safety
+                    ),
+                    "preference_match": (
+                        recommendation.score_breakdown.preference_match
+                    ),
+                    "comfort_match": (
+                        recommendation.score_breakdown.comfort_match
+                    ),
+                    "practicality": recommendation.score_breakdown.practicality,
+                    "total_score": recommendation.score_breakdown.total_score,
+                },
                 "reasoning": recommendation.reasoning,
                 "warnings": recommendation.warnings,
             }

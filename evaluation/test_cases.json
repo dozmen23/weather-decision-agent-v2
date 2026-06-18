@@ -78,7 +78,7 @@
       },
       "expected": {
         "status": "completed",
-        "top_activity": "Museum Visit",
+        "top_activity": "Traditional Arts Exhibition",
         "used_safe_fallback": false,
         "verdict": "approved",
         "required_actions": ["load_preferred_candidates"]
@@ -105,7 +105,7 @@
       },
       "expected": {
         "status": "completed",
-        "top_activity": "Indoor Cycling Session",
+        "top_activity": "Stationary Bike Workout",
         "used_safe_fallback": true,
         "verdict": "approved",
         "required_actions": ["load_related_alternatives"]
@@ -186,7 +186,7 @@
       },
       "expected": {
         "status": "completed",
-        "top_activity": "Indoor Climbing",
+        "top_activity": "Indoor Swimming",
         "used_safe_fallback": true,
         "verdict": "approved",
         "required_actions": ["load_related_alternatives"]
@@ -217,6 +217,125 @@
         "used_safe_fallback": true,
         "verdict": "approved",
         "required_actions": ["load_related_alternatives"]
+      }
+    },
+    {
+      "id": "good-weather-running-exact-match",
+      "description": "Good weather should keep the exact preferred outdoor running activity.",
+      "city": "Eskisehir",
+      "weather": {
+        "city": "Eskisehir",
+        "temperature_celsius": 21,
+        "precipitation_probability_percent": 0,
+        "wind_speed_kmh": 8,
+        "condition": "Clear sky"
+      },
+      "preferences": {
+        "preferred_activity_type": "running",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 10,
+        "max_temperature_celsius": 28,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Outdoor Running",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_preferred_candidates"]
+      }
+    },
+    {
+      "id": "high-wind-running-indoor-fallback",
+      "description": "High wind should move an outdoor running preference to a close indoor running option.",
+      "city": "Canakkale",
+      "weather": {
+        "city": "Canakkale",
+        "temperature_celsius": 18,
+        "precipitation_probability_percent": 5,
+        "wind_speed_kmh": 42,
+        "condition": "Windy"
+      },
+      "preferences": {
+        "preferred_activity_type": "running",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 10,
+        "max_temperature_celsius": 28,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Indoor Track Running",
+        "used_safe_fallback": true,
+        "verdict": "approved",
+        "required_actions": ["load_related_alternatives"]
+      }
+    },
+    {
+      "id": "indoor-study-direct-match",
+      "description": "An indoor study preference should remain direct and avoid fallback.",
+      "city": "Konya",
+      "weather": {
+        "city": "Konya",
+        "temperature_celsius": 24,
+        "precipitation_probability_percent": 5,
+        "wind_speed_kmh": 8,
+        "condition": "Clear sky"
+      },
+      "preferences": {
+        "preferred_activity_type": "study",
+        "prefers_outdoor": false,
+        "min_temperature_celsius": 15,
+        "max_temperature_celsius": 28,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Library Study Session",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_preferred_candidates"]
+      }
+    },
+    {
+      "id": "no-safe-activity-available",
+      "description": "If the available catalog has only unsafe outdoor options, the agent should stop safely.",
+      "city": "Kars",
+      "weather": {
+        "city": "Kars",
+        "temperature_celsius": -8,
+        "precipitation_probability_percent": 90,
+        "wind_speed_kmh": 55,
+        "condition": "Thunderstorm"
+      },
+      "preferences": {
+        "preferred_activity_type": "running",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 5,
+        "max_temperature_celsius": 25,
+        "max_precipitation_probability_percent": 30,
+        "max_wind_speed_kmh": 20
+      },
+      "activities": [
+        {
+          "name": "Exposed Hill Run",
+          "activity_type": "running",
+          "is_outdoor": true,
+          "min_temperature_celsius": 8,
+          "max_temperature_celsius": 28,
+          "max_precipitation_probability_percent": 20,
+          "max_wind_speed_kmh": 20
+        }
+      ],
+      "expected": {
+        "status": "no_recommendation",
+        "top_activity": null,
+        "used_safe_fallback": true,
+        "verdict": "no_recommendation",
+        "required_actions": ["load_safe_alternatives", "stop_no_result"]
       }
     }
   ]

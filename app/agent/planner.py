@@ -18,6 +18,7 @@ class AgentAction(str, Enum):
     LOAD_RELATED_ALTERNATIVES = "load_related_alternatives"
     LOAD_BROADER_CANDIDATES = "load_broader_candidates"
     LOAD_SAFE_ALTERNATIVES = "load_safe_alternatives"
+    LOAD_GENERATED_CANDIDATES = "load_generated_candidates"
     SCORE_CANDIDATES = "score_candidates"
     FINALIZE = "finalize"
     STOP_NO_RESULT = "stop_no_result"

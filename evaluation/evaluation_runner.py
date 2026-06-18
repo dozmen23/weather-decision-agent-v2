@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.agent.decision_agent import DecisionAgent
+from app.models.activity import Activity
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 from app.services.activity_service import ActivityService
@@ -33,6 +34,47 @@ class StaticWeatherTool:
         return self.weather
 
 
+class InlineActivityTool:
+    """Return scenario-specific activities without reading the full catalog."""
+
+    def __init__(self, activities: list[Activity]) -> None:
+        self.activities = activities
+
+    def find_candidates(
+        self,
+        activity_type: str | None = None,
+        is_outdoor: bool | None = None,
+    ) -> list[Activity]:
+        candidates = self.activities
+        if activity_type is not None:
+            normalized_type = activity_type.casefold()
+            candidates = [
+                activity
+                for activity in candidates
+                if activity.activity_type.casefold() == normalized_type
+            ]
+        if is_outdoor is not None:
+            candidates = [
+                activity for activity in candidates if activity.is_outdoor is is_outdoor
+            ]
+        return candidates
+
+    def find_similar_candidates(
+        self,
+        activity_type: str,
+        is_outdoor: bool | None = None,
+        limit: int = 8,
+    ) -> list[Activity]:
+        candidates = self.find_candidates(is_outdoor=is_outdoor)
+        normalized_type = activity_type.casefold()
+        exact_matches = [
+            activity
+            for activity in candidates
+            if activity.activity_type.casefold() == normalized_type
+        ]
+        return (exact_matches or candidates)[:limit]
+
+
 class EvaluationRunner:
     """Execute the real decision agent against reproducible scenarios."""
 
@@ -59,9 +101,15 @@ class EvaluationRunner:
         preferences = _parse_preferences(case["preferences"], case["id"])
         expected = case["expected"]
 
+        activity_tool = (
+            InlineActivityTool(_parse_inline_activities(case["activities"], case["id"]))
+            if "activities" in case
+            else ActivityService()
+        )
+
         result = DecisionAgent(
             weather_tool=StaticWeatherTool(weather),
-            activity_tool=ActivityService(),
+            activity_tool=activity_tool,
         ).run(case["city"], preferences)
         evaluation = self.evaluator.evaluate(result, preferences)
 
@@ -181,6 +229,10 @@ def _validate_case(case: Any, index: int) -> None:
         raise EvaluationDataError(
             f"Evaluation case '{case['id']}' has invalid expectations."
         )
+    if "activities" in case and not isinstance(case["activities"], list):
+        raise EvaluationDataError(
+            f"Evaluation case '{case['id']}' has invalid inline activities."
+        )
 
 
 def _parse_weather(raw: dict[str, Any], case_id: str) -> WeatherData:
@@ -234,6 +286,48 @@ def _require_boolean(value: Any, case_id: str) -> bool:
             f"Evaluation case '{case_id}' has a non-boolean preference."
         )
     return value
+
+
+def _parse_inline_activities(
+    raw_activities: list[Any],
+    case_id: str,
+) -> list[Activity]:
+    activities: list[Activity] = []
+    for index, raw_activity in enumerate(raw_activities):
+        if not isinstance(raw_activity, dict):
+            raise EvaluationDataError(
+                f"Evaluation case '{case_id}' has an invalid activity at "
+                f"index {index}."
+            )
+
+        try:
+            activities.append(
+                Activity(
+                    name=str(raw_activity["name"]),
+                    activity_type=str(raw_activity["activity_type"]),
+                    is_outdoor=_require_boolean(
+                        raw_activity["is_outdoor"],
+                        case_id,
+                    ),
+                    min_temperature_celsius=float(
+                        raw_activity["min_temperature_celsius"]
+                    ),
+                    max_temperature_celsius=float(
+                        raw_activity["max_temperature_celsius"]
+                    ),
+                    max_precipitation_probability_percent=int(
+                        raw_activity["max_precipitation_probability_percent"]
+                    ),
+                    max_wind_speed_kmh=float(raw_activity["max_wind_speed_kmh"]),
+                )
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise EvaluationDataError(
+                f"Evaluation case '{case_id}' has incomplete inline activity "
+                f"data at index {index}."
+            ) from exc
+
+    return activities
 
 
 def _compare(

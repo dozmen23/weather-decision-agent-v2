@@ -3,9 +3,10 @@
 from dataclasses import dataclass, field
 
 from app.core.rules import evaluate_activity
-from app.models.activity import Activity
+from app.models.activity import Activity, CostLevel, WeatherSensitivity
+from app.models.recommendation import RecommendationScoreBreakdown
 from app.models.user_preferences import UserPreferences
-from app.models.weather_data import WeatherData
+from app.models.weather_data import WeatherData, WeatherSeverity
 
 
 @dataclass
@@ -15,6 +16,10 @@ class ScoreBreakdown:
     activity: Activity
     is_eligible: bool
     total_score: float
+    score_breakdown: RecommendationScoreBreakdown = field(
+        default_factory=RecommendationScoreBreakdown
+    )
+    weather_severity: WeatherSeverity | None = None
     activity_type_score: float = 0.0
     setting_score: float = 0.0
     temperature_score: float = 0.0
@@ -38,19 +43,22 @@ def score_activity(
             activity=activity,
             is_eligible=False,
             total_score=0.0,
+            score_breakdown=RecommendationScoreBreakdown(),
+            weather_severity=weather.severity_level,
             warnings=rule_result.warnings,
             failed_rules=rule_result.failed_rules,
         )
 
     activity_type_score = (
-        30.0
+        25.0
         if (
             activity.activity_type.casefold()
             == preferences.preferred_activity_type.casefold()
         )
         else 0.0
     )
-    setting_score = 20.0 if activity.is_outdoor == preferences.prefers_outdoor else 0.0
+    setting_score = 10.0 if activity.is_outdoor == preferences.prefers_outdoor else 0.0
+    preference_match_score = activity_type_score + setting_score
 
     if activity.is_outdoor:
         temperature_score = _temperature_score(weather, preferences)
@@ -75,30 +83,38 @@ def score_activity(
         precipitation_score = 15.0
         wind_score = 15.0
 
+    weather_safety_score = precipitation_score + wind_score
+    practicality_score = _practicality_score(activity, weather)
+
     total_score = round(
-        activity_type_score
-        + setting_score
+        preference_match_score
         + temperature_score
-        + precipitation_score
-        + wind_score,
+        + weather_safety_score
+        + practicality_score,
         2,
+    )
+    score_breakdown = RecommendationScoreBreakdown(
+        weather_safety=round(weather_safety_score, 2),
+        preference_match=round(preference_match_score, 2),
+        comfort_match=round(temperature_score, 2),
+        practicality=round(practicality_score, 2),
+        total_score=total_score,
     )
 
     return ScoreBreakdown(
         activity=activity,
         is_eligible=True,
         total_score=total_score,
+        score_breakdown=score_breakdown,
+        weather_severity=weather.severity_level,
         activity_type_score=activity_type_score,
         setting_score=setting_score,
         temperature_score=temperature_score,
         precipitation_score=precipitation_score,
         wind_score=wind_score,
         explanations=_build_explanations(
-            activity_type_score=activity_type_score,
-            setting_score=setting_score,
-            temperature_score=temperature_score,
-            precipitation_score=precipitation_score,
-            wind_score=wind_score,
+            score_breakdown=score_breakdown,
+            weather_severity=weather.severity_level,
         ),
         warnings=rule_result.warnings,
     )
@@ -154,18 +170,51 @@ def _remaining_margin_score(
     return round(maximum_score * ratio, 2)
 
 
+def _practicality_score(activity: Activity, weather: WeatherData) -> float:
+    score = 15.0
+
+    if activity.cost_level is CostLevel.MEDIUM:
+        score -= 2.0
+    elif activity.cost_level is CostLevel.HIGH:
+        score -= 4.0
+
+    if activity.requires_reservation:
+        score -= 2.0
+
+    if activity.duration_minutes > 180:
+        score -= 2.0
+    elif activity.duration_minutes < 20:
+        score -= 1.0
+
+    if activity.is_outdoor:
+        if (
+            weather.severity_level is WeatherSeverity.HIGH
+            and activity.weather_sensitivity
+            in {
+                WeatherSensitivity.MODERATE,
+                WeatherSensitivity.HIGH,
+            }
+        ):
+            score -= 4.0
+        elif (
+            weather.severity_level is WeatherSeverity.MODERATE
+            and activity.weather_sensitivity is WeatherSensitivity.HIGH
+        ):
+            score -= 2.0
+
+    return round(max(0.0, score), 2)
+
+
 def _build_explanations(
-    activity_type_score: float,
-    setting_score: float,
-    temperature_score: float,
-    precipitation_score: float,
-    wind_score: float,
+    score_breakdown: RecommendationScoreBreakdown,
+    weather_severity: WeatherSeverity,
 ) -> list[str]:
     explanations = [
-        f"Activity type match: {activity_type_score:.1f}/30",
-        f"Indoor/outdoor preference match: {setting_score:.1f}/20",
-        f"Temperature comfort: {temperature_score:.1f}/20",
-        f"Precipitation margin: {precipitation_score:.1f}/15",
-        f"Wind margin: {wind_score:.1f}/15",
+        f"Weather severity: {weather_severity.value}",
+        f"Weather safety: {score_breakdown.weather_safety:.1f}/30",
+        f"Preference match: {score_breakdown.preference_match:.1f}/35",
+        f"Comfort match: {score_breakdown.comfort_match:.1f}/20",
+        f"Practicality: {score_breakdown.practicality:.1f}/15",
+        f"Total score: {score_breakdown.total_score:.1f}/100",
     ]
     return explanations

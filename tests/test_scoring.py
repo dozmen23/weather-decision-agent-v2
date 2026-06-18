@@ -44,7 +44,15 @@ class ActivityScoringTests(unittest.TestCase):
 
         self.assertTrue(result.is_eligible)
         self.assertEqual(result.total_score, 100.0)
-        self.assertEqual(len(result.explanations), 5)
+        self.assertEqual(result.score_breakdown.weather_safety, 30.0)
+        self.assertEqual(result.score_breakdown.preference_match, 35.0)
+        self.assertEqual(result.score_breakdown.comfort_match, 20.0)
+        self.assertEqual(result.score_breakdown.practicality, 15.0)
+        self.assertEqual(result.score_breakdown.total_score, 100.0)
+        self.assertEqual(result.weather_severity.value, "LOW")
+        self.assertEqual(len(result.explanations), 6)
+        self.assertIn("Weather severity: LOW", result.explanations)
+        self.assertIn("Total score: 100.0/100", result.explanations)
 
     def test_weather_risk_reduces_score_before_reaching_hard_limit(self) -> None:
         calm_weather = WeatherData("Istanbul", 22.5, 5, 5, "Clear")

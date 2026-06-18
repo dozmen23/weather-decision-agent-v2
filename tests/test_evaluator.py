@@ -162,6 +162,21 @@ class DeterministicEvaluatorTests(unittest.TestCase):
             [check.name for check in report.failed_checks],
         )
 
+    def test_altered_score_breakdown_is_rejected(self) -> None:
+        result = DecisionAgent(
+            StubWeatherTool(WeatherData("Istanbul", 22.5, 5, 5, "Clear")),
+            StubActivityTool([self.park_walk]),
+        ).run("Istanbul", self.preferences)
+        result.recommendations[0].score_breakdown.practicality = 0.0
+
+        report = self.evaluator.evaluate(result, self.preferences)
+
+        self.assertEqual(report.verdict, EvaluationVerdict.REJECTED)
+        self.assertIn(
+            "score_integrity",
+            [check.name for check in report.failed_checks],
+        )
+
     def test_safe_stop_is_valid_but_not_recommendation_success(self) -> None:
         result = DecisionAgent(
             StubWeatherTool(

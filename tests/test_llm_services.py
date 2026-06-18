@@ -139,6 +139,36 @@ class LLMServiceTests(unittest.TestCase):
             prompt_context["recommendations"][0]["score"],
             self.result.recommendations[0].score,
         )
+        self.assertEqual(
+            prompt_context["recommendations"][0]["score_breakdown"],
+            {
+                "weather_safety": (
+                    self.result.recommendations[0]
+                    .score_breakdown
+                    .weather_safety
+                ),
+                "preference_match": (
+                    self.result.recommendations[0]
+                    .score_breakdown
+                    .preference_match
+                ),
+                "comfort_match": (
+                    self.result.recommendations[0]
+                    .score_breakdown
+                    .comfort_match
+                ),
+                "practicality": (
+                    self.result.recommendations[0]
+                    .score_breakdown
+                    .practicality
+                ),
+                "total_score": (
+                    self.result.recommendations[0]
+                    .score_breakdown
+                    .total_score
+                ),
+            },
+        )
 
     def test_explanation_rejects_invented_activity(self) -> None:
         client = FakeStructuredLLMClient(
@@ -243,6 +273,7 @@ class LLMServiceTests(unittest.TestCase):
                 weather_context["maximum_temperature_celsius"],
                 20.4,
             )
+            self.assertEqual(weather_context["severity_level"], "LOW")
 
     def test_judge_cannot_approve_deterministic_rejection(self) -> None:
         self.result.recommendations[0].score = 99

@@ -290,6 +290,7 @@ class DecisionAgent:
                 activity=result.activity,
                 score=result.total_score,
                 reasoning="; ".join(result.explanations),
+                score_breakdown=result.score_breakdown,
                 warnings=result.warnings,
             )
             for result in selected_candidates
