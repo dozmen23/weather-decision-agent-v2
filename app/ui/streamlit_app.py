@@ -13,7 +13,10 @@ from app.llm.factory import (
     create_llm_client,
     load_llm_settings,
 )
-from app.models.recommendation_history import FeedbackValue
+from app.models.recommendation_history import (
+    FeedbackValue,
+    RecommendationHistoryItem,
+)
 from app.models.user_preferences import UserPreferences
 from app.services.activity_service import ActivityCatalogError, ActivityService
 from app.services.history_service import (
@@ -24,7 +27,7 @@ from app.services.recommendation_service import (
     RecommendationService,
     RecommendationWorkflowResult,
 )
-from app.services.weather_service import WeatherServiceError
+from app.services.weather_service import WeatherService, WeatherServiceError
 
 
 ACTION_LABELS = {
@@ -73,20 +76,44 @@ ACTIVITY_NAME_LABELS = {
     "Mall Walk": "AVM yürüyüşü",
     "Indoor Track Walk": "Kapalı pist yürüyüşü",
     "Treadmill Walk": "Koşu bandında yürüyüş",
+    "Coastal Cycling": "Sahil bisikleti",
+    "Park Cycling": "Parkta bisiklet",
     "Outdoor Running": "Açık havada koşu",
     "Trail Running": "Patika koşusu",
     "Indoor Track Running": "Kapalı pist koşusu",
     "Treadmill Running": "Koşu bandı",
     "Indoor Cycling Session": "Kapalı bisiklet dersi",
     "Stationary Bike Workout": "Sabit bisiklet antrenmanı",
+    "Outdoor Basketball": "Açık saha basketbolu",
+    "Outdoor Tennis Practice": "Açık kort tenis antrenmanı",
     "Indoor Swimming": "Kapalı havuz",
     "Indoor Climbing": "Kapalı tırmanış",
     "Indoor Court Training": "Kapalı saha antrenmanı",
     "Museum Visit": "Müze ziyareti",
+    "Historical District Tour": "Tarihi semt turu",
+    "Theatre Performance": "Tiyatro gösterisi",
     "Traditional Arts Exhibition": "Geleneksel sanatlar sergisi",
+    "Art Workshop": "Sanat atölyesi",
+    "Pottery Workshop": "Seramik atölyesi",
+    "Outdoor Picnic": "Açık hava pikniği",
+    "Cafe Meetup": "Kafe buluşması",
+    "Public Garden Meetup": "Bahçe buluşması",
+    "Board Game Meetup": "Kutu oyunu buluşması",
+    "Covered Market Visit": "Kapalı pazar gezisi",
+    "Community Center Meetup": "Topluluk merkezi buluşması",
     "Library Study Session": "Kütüphane çalışma seansı",
+    "Outdoor Reading Garden": "Açık havada okuma molası",
     "Quiet Cafe Study": "Sessiz kafede çalışma",
+    "Coworking Focus Session": "Ortak çalışma odak seansı",
+    "City Photography Walk": "Şehir fotoğraf yürüyüşü",
+    "Nature Photography": "Doğa fotoğrafçılığı",
     "Indoor Architecture Photography": "Kapalı mimari fotoğrafçılık",
+    "Museum Photography Practice": "Müze fotoğraf pratiği",
+    "Park Reading Break": "Parkta okuma molası",
+    "Seaside Relaxation": "Sahil rahatlama molası",
+    "Indoor Meditation Session": "Kapalı meditasyon seansı",
+    "Wellness Session": "Wellness seansı",
+    "Tea House Reading": "Çay evinde okuma",
 }
 
 ACTIVITY_TYPE_LABELS = {
@@ -99,6 +126,7 @@ ACTIVITY_TYPE_LABELS = {
     "study": "Çalışma",
     "photography": "Fotoğraf",
     "relaxation": "Rahatlama",
+    "creative": "Yaratıcı",
 }
 
 WARNING_LABELS = {
@@ -144,12 +172,13 @@ def main() -> None:
         layout="wide",
     )
     _render_styles()
-    _render_header()
 
-    activity_types = get_activity_types()
     history_repository = RecommendationHistoryRepository()
     view_mode = _render_view_mode()
     developer_mode = view_mode == DEVELOPER_MODE
+    _render_header(developer_mode)
+
+    activity_types = get_activity_types()
     form_values = _render_preference_form(activity_types)
     if form_values is None:
         last_result = st.session_state.get("last_workflow_result")
@@ -270,6 +299,12 @@ def get_forecast_date_bounds(
     return first_day, first_day + timedelta(days=6)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def get_sidebar_forecast(city: str):
+    """Return a cached seven-day forecast for sidebar day selection."""
+    return WeatherService().get_daily_forecast(city, forecast_days=7)
+
+
 def format_forecast_date(forecast_date: date) -> str:
     """Return a locale-independent Turkish date label."""
     return (
@@ -277,6 +312,37 @@ def format_forecast_date(forecast_date: date) -> str:
         f"{TURKISH_MONTH_NAMES[forecast_date.month - 1]} "
         f"{forecast_date.year}, "
         f"{TURKISH_DAY_NAMES[forecast_date.weekday()]}"
+    )
+
+
+def format_forecast_card_label(weather, today: date | None = None) -> str:
+    """Return a compact label for a selectable forecast day."""
+    forecast_date = weather.forecast_date
+    if forecast_date is None:
+        return "Bugün"
+
+    reference_day = today or date.today()
+    if forecast_date == reference_day:
+        day_label = "Bugün"
+    else:
+        day_label = TURKISH_DAY_NAMES[forecast_date.weekday()]
+
+    if (
+        weather.minimum_temperature_celsius is not None
+        and weather.maximum_temperature_celsius is not None
+    ):
+        temperature_label = (
+            f"{weather.minimum_temperature_celsius:.0f}-"
+            f"{weather.maximum_temperature_celsius:.0f}°C"
+        )
+    else:
+        temperature_label = f"{weather.temperature_celsius:.0f}°C"
+
+    return (
+        f"{day_label}\n"
+        f"{temperature_label}\n"
+        f"%{weather.precipitation_probability_percent} yağış · "
+        f"{format_severity(weather.severity_level.value)}"
     )
 
 
@@ -312,7 +378,36 @@ def format_severity(severity: str) -> str:
     return SEVERITY_LABELS.get(severity, severity.lower())
 
 
-def _render_header() -> None:
+def format_feedback_value(feedback: FeedbackValue | None) -> str:
+    """Return a user-facing feedback label."""
+    if feedback is FeedbackValue.POSITIVE:
+        return "Beğendin"
+    if feedback is FeedbackValue.NEGATIVE:
+        return "Beğenmedin"
+    return "Henüz yok"
+
+
+def format_history_status(status: str) -> str:
+    """Return a user-facing history status label."""
+    if status == "completed":
+        return "Öneri hazırlandı"
+    if status == "no_recommendation":
+        return "Güvenli öneri bulunamadı"
+    return status
+
+
+def format_history_recommendations(
+    recommendations: list[RecommendationHistoryItem],
+) -> str:
+    """Return compact user-facing activity names for a history record."""
+    if not recommendations:
+        return "Öneri yok"
+    return ", ".join(
+        format_activity_name(item.activity_name) for item in recommendations
+    )
+
+
+def _render_header(developer_mode: bool) -> None:
     st.title("Weather Decision Agent")
     st.markdown(
         """
@@ -321,10 +416,16 @@ def _render_header() -> None:
         alternatif bulur.
         """
     )
-    st.caption(
-        "Güvenlik kararları kurallarla verilir; LLM yalnızca daha anlaşılır "
-        "açıklama ve kontrollü aday desteği sağlar."
-    )
+    if developer_mode:
+        st.caption(
+            "Karar kuralları ve puanlar deterministiktir. LLM yalnızca aday, "
+            "açıklama ve ikinci görüş desteği verir."
+        )
+    else:
+        st.caption(
+            "Açık alan iyi görünmüyorsa daha rahat bir kapalı alternatif "
+            "önerir."
+        )
 
 
 def _render_view_mode() -> str:
@@ -343,23 +444,15 @@ def _render_preference_form(
 ) -> dict[str, object] | None:
     with st.sidebar:
         st.header("Tercihler")
+        city = st.text_input("Şehir", value="Istanbul")
+        target_date = _render_forecast_selector(city)
+
         with st.form("recommendation_form"):
-            city = st.text_input("Şehir", value="Istanbul")
-            first_forecast_date, last_forecast_date = (
-                get_forecast_date_bounds()
-            )
-            target_date = st.date_input(
-                "Planlanan gün",
-                value=first_forecast_date,
-                min_value=first_forecast_date,
-                max_value=last_forecast_date,
-                format="DD/MM/YYYY",
-                help="Bugün dahil önümüzdeki yedi günden birini seç.",
-            )
             preferred_activity_type = st.selectbox(
                 "Tercih edilen aktivite türü",
                 options=activity_types,
                 index=_default_activity_index(activity_types),
+                format_func=format_activity_type,
             )
             setting = st.radio(
                 "Ortam tercihi",
@@ -426,6 +519,70 @@ def _render_preference_form(
     }
 
 
+def _render_forecast_selector(city: str) -> date:
+    normalized_city = city.strip()
+    if len(normalized_city) < 2:
+        first_forecast_date, last_forecast_date = get_forecast_date_bounds()
+        return st.date_input(
+            "Planlanan gün",
+            value=first_forecast_date,
+            min_value=first_forecast_date,
+            max_value=last_forecast_date,
+            format="DD/MM/YYYY",
+        )
+
+    try:
+        forecasts = get_sidebar_forecast(normalized_city)
+    except WeatherServiceError:
+        st.info("Gün kartları şu an alınamadı; tarihi elle seçebilirsin.")
+        first_forecast_date, last_forecast_date = get_forecast_date_bounds()
+        return st.date_input(
+            "Planlanan gün",
+            value=first_forecast_date,
+            min_value=first_forecast_date,
+            max_value=last_forecast_date,
+            format="DD/MM/YYYY",
+        )
+
+    forecast_dates = [
+        weather.forecast_date
+        for weather in forecasts
+        if weather.forecast_date is not None
+    ]
+    if not forecast_dates:
+        first_forecast_date, last_forecast_date = get_forecast_date_bounds()
+        return st.date_input(
+            "Planlanan gün",
+            value=first_forecast_date,
+            min_value=first_forecast_date,
+            max_value=last_forecast_date,
+            format="DD/MM/YYYY",
+        )
+
+    selected_date = st.session_state.get("selected_forecast_date")
+    if selected_date not in forecast_dates:
+        selected_date = forecast_dates[0]
+
+    st.caption("Planlanacak gün")
+    columns = st.columns(2)
+    for index, weather in enumerate(forecasts):
+        if weather.forecast_date is None:
+            continue
+
+        is_selected = weather.forecast_date == selected_date
+        clicked = columns[index % 2].button(
+            format_forecast_card_label(weather),
+            key=f"forecast_day_{weather.forecast_date.isoformat()}",
+            type="primary" if is_selected else "secondary",
+            use_container_width=True,
+        )
+        if clicked:
+            selected_date = weather.forecast_date
+
+    st.session_state["selected_forecast_date"] = selected_date
+    return selected_date
+
+
 def _render_empty_state(developer_mode: bool) -> None:
     st.info(
         "Soldaki tercihleri düzenleyip **Öneri üret** düğmesine basarak "
@@ -435,7 +592,7 @@ def _render_empty_state(developer_mode: bool) -> None:
     if developer_mode:
         columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
         columns[1].metric("Evaluation kontrolleri", "6")
-        columns[2].metric("Otomatik test", "86 başarılı")
+        columns[2].metric("Otomatik test", "92 başarılı")
     else:
         columns[0].metric("Görünüm", "Sade")
         columns[1].metric("Geçmiş", "Aktif")
@@ -599,18 +756,17 @@ def _render_recommendation_card(
             f"{activity_type_label} · {setting}"
         )
 
-        if explanation and not developer_mode:
-            st.markdown(_select_user_explanation(recommendation, explanation))
+        if not developer_mode:
+            _render_user_recommendation_explanation(
+                recommendation,
+                explanation,
+            )
         elif explanation:
             st.markdown(explanation)
         elif developer_mode:
             st.markdown(
                 "Deterministik puan bileşenleri: "
                 + recommendation.reasoning
-            )
-        else:
-            st.markdown(
-                _format_user_recommendation_reason(recommendation)
             )
 
         if developer_mode:
@@ -635,6 +791,25 @@ def _render_recommendation_card(
 
         for warning in recommendation.warnings:
             st.warning(format_warning(warning))
+
+
+def _render_user_recommendation_explanation(
+    recommendation,
+    explanation: str | None,
+) -> None:
+    reason = (
+        _select_user_explanation(recommendation, explanation)
+        if explanation
+        else _format_user_recommendation_reason(recommendation)
+    )
+    st.markdown("**Neden bunu önerdim?**")
+    st.write(reason)
+
+    attention_items = _build_attention_items(recommendation)
+    if attention_items:
+        st.markdown("**Dikkat et**")
+        for item in attention_items:
+            st.caption(f"- {item}")
 
 
 def _format_user_recommendation_reason(recommendation) -> str:
@@ -668,6 +843,15 @@ def _select_user_explanation(recommendation, explanation: str) -> str:
     if any(marker in normalized for marker in technical_markers):
         return _format_user_recommendation_reason(recommendation)
     return explanation
+
+
+def _build_attention_items(recommendation) -> list[str]:
+    items = [format_warning(warning) for warning in recommendation.warnings]
+    if not recommendation.activity.is_outdoor and not items:
+        items.append(
+            "Kapalı alan olduğu için hava koşullarından daha az etkilenir."
+        )
+    return items
 
 
 def _format_user_fit_label(recommendation) -> str:
@@ -705,7 +889,9 @@ def _render_feedback_controls(
 
     st.subheader("Geri bildirim")
     if record.feedback is not None:
-        st.caption(f"Kaydedilen geri bildirim: {record.feedback.value}")
+        st.caption(
+            f"Kaydedilen geri bildirim: {format_feedback_value(record.feedback)}"
+        )
 
     note = st.text_input(
         "Kısa not",
@@ -779,32 +965,59 @@ def _render_recent_history(
     if not recent_records:
         return
 
+    if developer_mode:
+        _render_developer_history(recent_records)
+    else:
+        _render_user_history(recent_records)
+
+
+def _render_user_history(recent_records) -> None:
+    st.subheader("Son önerilerin")
+    with st.expander("Geçmişi göster", expanded=False):
+        for record in recent_records:
+            with st.container(border=True):
+                st.markdown(
+                    f"**{record.city} · {format_history_status(record.status)}**"
+                )
+                st.caption(format_history_recommendations(record.recommendations))
+                st.caption(
+                    f"Geri bildirim: {format_feedback_value(record.feedback)}"
+                )
+
+
+def _render_developer_history(recent_records) -> None:
     st.subheader("Son çalışmalar")
     with st.expander("Öneri geçmişi", expanded=False):
         for record in recent_records:
-            recommendation_names = ", ".join(
-                item.activity_name for item in record.recommendations
-            )
-            if not recommendation_names:
-                recommendation_names = "Öneri yok"
-
-            feedback_label = (
-                record.feedback.value if record.feedback is not None else "yok"
+            source_label = (
+                "generated" if record.used_generated_candidates else "catalog"
             )
             st.markdown(
-                f"**{record.city} · {record.status}**"
+                f"**{record.city} · {record.status} · {source_label}**"
             )
-            if developer_mode:
-                generated_label = (
-                    "generated" if record.used_generated_candidates else "catalog"
-                )
-                st.caption(
-                    f"{recommendation_names} | feedback: {feedback_label} | "
-                    f"{generated_label} | {record.created_at}"
-                )
-            else:
-                st.caption(
-                    f"{recommendation_names} | feedback: {feedback_label}"
+            st.caption(
+                f"{record.created_at} | feedback: "
+                f"{format_feedback_value(record.feedback)} | "
+                f"fallback: {record.used_safe_fallback}"
+            )
+            st.caption(format_history_recommendations(record.recommendations))
+            with st.expander(f"Raw record: {record.record_id}", expanded=False):
+                st.json(
+                    {
+                        "record_id": record.record_id,
+                        "target_date": record.target_date,
+                        "weather": record.weather,
+                        "preferences": record.preferences,
+                        "recommendations": [
+                            {
+                                "activity_name": item.activity_name,
+                                "activity_type": item.activity_type,
+                                "is_outdoor": item.is_outdoor,
+                                "score": item.score,
+                            }
+                            for item in record.recommendations
+                        ],
+                    }
                 )
 
 

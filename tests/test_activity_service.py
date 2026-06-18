@@ -14,6 +14,18 @@ from app.services.activity_service import ActivityCatalogError, ActivityService
 
 
 class ActivityServiceTests(unittest.TestCase):
+    priority_activity_types = {
+        "walking",
+        "running",
+        "cycling",
+        "sports",
+        "culture",
+        "social",
+        "study",
+        "photography",
+        "relaxation",
+    }
+
     def test_default_catalog_loads_and_contains_indoor_and_outdoor_options(
         self,
     ) -> None:
@@ -36,6 +48,24 @@ class ActivityServiceTests(unittest.TestCase):
             park_walk.weather_sensitivity,
             WeatherSensitivity.MODERATE,
         )
+
+    def test_priority_categories_have_indoor_and_outdoor_options(self) -> None:
+        activities = ActivityService().get_all()
+
+        for activity_type in self.priority_activity_types:
+            matching_activities = [
+                activity
+                for activity in activities
+                if activity.activity_type == activity_type
+            ]
+
+            with self.subTest(activity_type=activity_type):
+                self.assertTrue(
+                    any(activity.is_outdoor for activity in matching_activities)
+                )
+                self.assertTrue(
+                    any(not activity.is_outdoor for activity in matching_activities)
+                )
 
     def test_find_candidates_filters_by_type_and_setting(self) -> None:
         candidates = ActivityService().find_candidates(
@@ -68,6 +98,21 @@ class ActivityServiceTests(unittest.TestCase):
             [activity.name for activity in candidates[:3]],
             ["Indoor Track Walk", "Mall Walk", "Treadmill Walk"],
         )
+
+    def test_priority_fallbacks_keep_activity_type_when_possible(self) -> None:
+        service = ActivityService()
+
+        for activity_type in self.priority_activity_types:
+            candidates = service.find_similar_candidates(
+                activity_type=activity_type,
+                is_outdoor=False,
+                limit=3,
+            )
+
+            with self.subTest(activity_type=activity_type):
+                self.assertGreaterEqual(len(candidates), 1)
+                self.assertEqual(candidates[0].activity_type, activity_type)
+                self.assertFalse(candidates[0].is_outdoor)
 
     def test_unknown_activity_type_has_no_similar_candidates(self) -> None:
         candidates = ActivityService().find_similar_candidates(

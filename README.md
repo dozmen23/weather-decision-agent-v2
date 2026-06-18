@@ -7,8 +7,11 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 
 - Open-Meteo üzerinden güncel hava durumu ve yedi günlük tahmin verisi alır.
 - Kullanıcının şehir, tarih, aktivite ve konfor tercihlerini değerlendirir.
+- Yedi günlük tahmini kartlı gün seçiciyle gösterir.
 - Aktivite kataloğunu deterministik güvenlik kurallarından geçirir.
 - Önce tam eşleşmeleri, ardından yakın kapalı alan alternatiflerini dener.
+- Kritik kategorilerde açık alan ve kapalı alan alternatiflerinin birlikte
+  kalmasını otomatik testlerle güvenceye alır.
 - Hava koşullarından `LOW`, `MODERATE`, `HIGH`, `SEVERE` risk seviyesi üretir.
 - Önerileri hava güvenliği, tercih eşleşmesi, konfor ve pratiklik kırılımıyla
   puanlar.
@@ -19,6 +22,12 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 - Streamlit arayüzü üzerinden öneri akışını çalıştırır.
 - Streamlit'te User Mode ile sade öneri akışı, Developer Mode ile evaluator,
   trace, raw hava verisi ve score breakdown detayları gösterir.
+- User Mode öneri kartlarında "Neden bunu önerdim?" ve "Dikkat et" bölümleri
+  kullanıcı diliyle gösterilir.
+- Geçmiş ekranı User Mode'da sade öneri geçmişi, Developer Mode'da raw kayıt
+  ve debug bilgileri olarak ayrılır.
+- Katalogdaki aktivite adları ve aktivite türleri User Mode'da Türkçe
+  etiketlerle gösterilir.
 - Reproducible evaluation senaryolarıyla exact match, fallback ve güvenli durma
   davranışlarını test eder.
 - Opsiyonel JSONL history repository ile öneri geçmişi ve kullanıcı feedback'i
@@ -47,7 +56,7 @@ Temel domain modelleri:
 
 Yakın vadeli geliştirme yönü:
 
-- geçmiş ekranını kullanıcı/geliştirici mod ayrımına göre düzenlemek
+- evaluation senaryolarını arayüzden daha görünür hale getirmek
 
 ## Yerel Kurulum
 

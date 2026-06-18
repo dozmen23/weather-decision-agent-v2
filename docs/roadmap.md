@@ -4,11 +4,14 @@
 
 - Seven-day weather forecast retrieval and normalization.
 - Agent evaluation for a user-selected forecast date.
+- Card-style seven-day forecast selector in the Streamlit sidebar.
 - Expanded activity model with practical metadata such as purpose, intensity,
   duration, cost level, weather sensitivity, reservation needs, participant fit,
   and tags.
 - Smarter fallback flow that tries exact matches before related indoor
   alternatives and only then broadens to safer unrelated options.
+- Catalog coverage checks for priority activity categories, ensuring each one
+  keeps both outdoor options and close indoor alternatives.
 - Weather severity level derived from rain, wind, temperature, and condition:
   `LOW`, `MODERATE`, `HIGH`, `SEVERE`.
 - Score breakdowns for each recommendation: `weather_safety`,
@@ -24,6 +27,11 @@
 - User Mode and Developer Mode split in Streamlit. User Mode keeps the
   recommendation flow simple; Developer Mode exposes score breakdowns,
   evaluator checks, LLM review, raw weather data, and agent trace.
+- User-facing recommendation cards with plain-language "why this" and
+  "watch out" sections.
+- Turkish User Mode labels for catalog activity names and activity types.
+- Split recommendation history so User Mode shows a simple recent activity
+  list while Developer Mode keeps raw history/debug details.
 - Optional LLM explanation and second-review layer after deterministic
   decisions.
 
@@ -31,8 +39,8 @@
 
 1. Keep expanding deterministic and LLM evaluation scenarios as new behavior is
    added.
-2. Refine the history view and decide which history details belong in User Mode
-   versus Developer Mode.
+2. Add a Developer Mode evaluation dashboard for running scenario checks from
+   the interface.
 3. Prepare deployment only after the application workflow is complete.
 
 ## Activity Catalog Direction
@@ -58,7 +66,6 @@
 These items are intentionally postponed until the technical workflow is stable:
 
 - Use consistent, natural Turkish throughout the application.
-- Split the interface into User Mode and Developer Mode.
 - Keep User Mode focused on simple recommendations and short explanations.
 - Move agent trace, evaluator results, score breakdown, raw weather data, and
   LLM review into Developer Mode.
