@@ -95,6 +95,17 @@ class StubActivityTool:
             return []
         return [self.activity]
 
+    def find_similar_candidates(
+        self,
+        activity_type: str,
+        is_outdoor: bool | None = None,
+        limit: int = 8,
+    ) -> list[Activity]:
+        return self.find_candidates(
+            activity_type=activity_type,
+            is_outdoor=is_outdoor,
+        )[:limit]
+
 
 class InvalidAgent:
     def run(

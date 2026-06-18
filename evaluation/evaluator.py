@@ -228,7 +228,14 @@ class DeterministicEvaluator:
     @staticmethod
     def _check_fallback_consistency(result: AgentResult) -> EvaluationCheck:
         actions = [step.action for step in result.trace]
-        trace_used_fallback = AgentAction.LOAD_SAFE_ALTERNATIVES in actions
+        trace_used_fallback = any(
+            action
+            in {
+                AgentAction.LOAD_RELATED_ALTERNATIVES,
+                AgentAction.LOAD_SAFE_ALTERNATIVES,
+            }
+            for action in actions
+        )
         recommendations_are_indoor = all(
             not recommendation.activity.is_outdoor
             for recommendation in result.recommendations

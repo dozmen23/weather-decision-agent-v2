@@ -59,6 +59,20 @@ class StubActivityTool:
 
         return candidates
 
+    def find_similar_candidates(
+        self,
+        activity_type: str,
+        is_outdoor: bool | None = None,
+        limit: int = 8,
+    ) -> list[Activity]:
+        candidates = self.find_candidates(is_outdoor=is_outdoor)
+        exact_matches = [
+            activity
+            for activity in candidates
+            if activity.activity_type.casefold() == activity_type.casefold()
+        ]
+        return (exact_matches or candidates)[:limit]
+
 
 class DecisionAgentTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -97,13 +111,24 @@ class DecisionAgentTests(unittest.TestCase):
             100,
             100,
         )
+        self.mall_walk = Activity(
+            "Mall Walk",
+            "walking",
+            False,
+            -20,
+            50,
+            100,
+            100,
+            purpose="light exercise",
+            tags=("walking", "indoor", "light exercise"),
+        )
 
     def test_agent_finishes_when_preferred_candidate_is_eligible(self) -> None:
         weather_tool = StubWeatherTool(
             WeatherData("Istanbul", 22.5, 5, 5, "Clear sky")
         )
         activity_tool = StubActivityTool(
-            [self.park_walk, self.cycling, self.museum]
+            [self.park_walk, self.cycling, self.museum, self.mall_walk]
         )
 
         result = DecisionAgent(weather_tool, activity_tool).run(
@@ -129,7 +154,7 @@ class DecisionAgentTests(unittest.TestCase):
             WeatherData("Istanbul", 18, 90, 45, "Thunderstorm")
         )
         activity_tool = StubActivityTool(
-            [self.park_walk, self.cycling, self.museum]
+            [self.park_walk, self.cycling, self.museum, self.mall_walk]
         )
 
         result = DecisionAgent(weather_tool, activity_tool).run(
@@ -138,13 +163,13 @@ class DecisionAgentTests(unittest.TestCase):
         )
 
         self.assertEqual(result.status, "completed")
-        self.assertEqual(result.recommendations[0].activity.name, "Museum Visit")
+        self.assertEqual(result.recommendations[0].activity.name, "Mall Walk")
         self.assertTrue(result.used_safe_fallback)
         self.assertIn(
-            AgentAction.LOAD_BROADER_CANDIDATES,
+            AgentAction.LOAD_RELATED_ALTERNATIVES,
             [step.action for step in result.trace],
         )
-        self.assertIn(
+        self.assertNotIn(
             AgentAction.LOAD_SAFE_ALTERNATIVES,
             [step.action for step in result.trace],
         )

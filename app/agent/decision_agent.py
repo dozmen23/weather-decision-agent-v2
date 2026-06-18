@@ -43,6 +43,14 @@ class ActivityCatalogTool(Protocol):
     ) -> list[Activity]:
         """Return activities matching optional filters."""
 
+    def find_similar_candidates(
+        self,
+        activity_type: str,
+        is_outdoor: bool | None = None,
+        limit: int = 8,
+    ) -> list[Activity]:
+        """Return activities related to the preferred activity type."""
+
 
 @dataclass(frozen=True)
 class AgentTraceStep:
@@ -156,6 +164,24 @@ class DecisionAgent:
                 )
                 continue
 
+            if action is AgentAction.LOAD_RELATED_ALTERNATIVES:
+                state.candidates = self.activity_tool.find_similar_candidates(
+                    activity_type=preferences.preferred_activity_type,
+                    is_outdoor=False,
+                    limit=8,
+                )
+                state.ranked_candidates = []
+                state.search_strategy = SearchStrategy.RELATED_ALTERNATIVES
+                state.scoring_completed = False
+                trace.append(
+                    AgentTraceStep(
+                        action,
+                        f"Loaded {len(state.candidates)} close indoor "
+                        "alternatives using activity purpose and tags.",
+                    )
+                )
+                continue
+
             if action is AgentAction.LOAD_SAFE_ALTERNATIVES:
                 self._load_candidates(
                     state,
@@ -214,8 +240,13 @@ class DecisionAgent:
                     status="no_recommendation",
                     weather=state.weather,
                     trace=trace,
-                    used_safe_fallback=(
-                        state.search_strategy is SearchStrategy.SAFE_ALTERNATIVES
+                    used_safe_fallback=any(
+                        step.action
+                        in {
+                            AgentAction.LOAD_RELATED_ALTERNATIVES,
+                            AgentAction.LOAD_SAFE_ALTERNATIVES,
+                        }
+                        for step in trace
                     ),
                     message=(
                         "No activity satisfied the current weather and preference "
@@ -276,7 +307,11 @@ class DecisionAgent:
             recommendations=recommendations,
             trace=trace,
             used_safe_fallback=(
-                state.search_strategy is SearchStrategy.SAFE_ALTERNATIVES
+                state.search_strategy
+                in {
+                    SearchStrategy.RELATED_ALTERNATIVES,
+                    SearchStrategy.SAFE_ALTERNATIVES,
+                }
             ),
             message="Recommendations were produced successfully.",
         )

@@ -15,8 +15,8 @@ class EvaluationRunnerTests(unittest.TestCase):
     def test_default_scenarios_all_pass(self) -> None:
         report = EvaluationRunner().run()
 
-        self.assertEqual(report.summary.total_cases, 5)
-        self.assertEqual(report.summary.passed_cases, 5)
+        self.assertEqual(report.summary.total_cases, 8)
+        self.assertEqual(report.summary.passed_cases, 8)
         self.assertEqual(report.summary.scenario_pass_rate_percent, 100.0)
         self.assertEqual(report.summary.system_validity_rate_percent, 100.0)
         self.assertEqual(

@@ -15,6 +15,7 @@ class AgentAction(str, Enum):
 
     FETCH_WEATHER = "fetch_weather"
     LOAD_PREFERRED_CANDIDATES = "load_preferred_candidates"
+    LOAD_RELATED_ALTERNATIVES = "load_related_alternatives"
     LOAD_BROADER_CANDIDATES = "load_broader_candidates"
     LOAD_SAFE_ALTERNATIVES = "load_safe_alternatives"
     SCORE_CANDIDATES = "score_candidates"
@@ -27,6 +28,7 @@ class SearchStrategy(str, Enum):
 
     NOT_STARTED = "not_started"
     PREFERRED = "preferred"
+    RELATED_ALTERNATIVES = "related_alternatives"
     BROADER = "broader"
     SAFE_ALTERNATIVES = "safe_alternatives"
 
@@ -63,6 +65,9 @@ class DecisionPlanner:
             return AgentAction.FINALIZE
 
         if state.search_strategy is SearchStrategy.PREFERRED:
+            return AgentAction.LOAD_RELATED_ALTERNATIVES
+
+        if state.search_strategy is SearchStrategy.RELATED_ALTERNATIVES:
             return AgentAction.LOAD_BROADER_CANDIDATES
 
         if (

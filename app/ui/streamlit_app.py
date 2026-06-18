@@ -24,6 +24,7 @@ from app.services.weather_service import WeatherServiceError
 ACTION_LABELS = {
     AgentAction.FETCH_WEATHER: "Hava verisi alındı",
     AgentAction.LOAD_PREFERRED_CANDIDATES: "Tercihe uygun aktiviteler arandı",
+    AgentAction.LOAD_RELATED_ALTERNATIVES: "Yakın kapalı alternatifler arandı",
     AgentAction.LOAD_BROADER_CANDIDATES: "Aktivite araması genişletildi",
     AgentAction.LOAD_SAFE_ALTERNATIVES: "Güvenli kapalı alan alternatifleri arandı",
     AgentAction.SCORE_CANDIDATES: "Adaylar kurallardan geçirilip puanlandı",
@@ -279,7 +280,7 @@ def _render_empty_state() -> None:
     columns = st.columns(3)
     columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
     columns[1].metric("Evaluation kontrolleri", "6")
-    columns[2].metric("Otomatik test", "64 başarılı")
+    columns[2].metric("Otomatik test", "68 başarılı")
 
 
 def _render_workflow_result(result: RecommendationWorkflowResult) -> None:

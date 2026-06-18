@@ -47,6 +47,20 @@ class StubActivityTool:
             ]
         return candidates
 
+    def find_similar_candidates(
+        self,
+        activity_type: str,
+        is_outdoor: bool | None = None,
+        limit: int = 8,
+    ) -> list[Activity]:
+        candidates = self.find_candidates(is_outdoor=is_outdoor)
+        exact_matches = [
+            activity
+            for activity in candidates
+            if activity.activity_type.casefold() == activity_type.casefold()
+        ]
+        return (exact_matches or candidates)[:limit]
+
 
 class DeterministicEvaluatorTests(unittest.TestCase):
     def setUp(self) -> None:

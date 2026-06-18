@@ -49,12 +49,11 @@
       },
       "expected": {
         "status": "completed",
-        "top_activity": "Art Workshop",
+        "top_activity": "Indoor Track Walk",
         "used_safe_fallback": true,
         "verdict": "approved",
         "required_actions": [
-          "load_broader_candidates",
-          "load_safe_alternatives"
+          "load_related_alternatives"
         ]
       }
     },
@@ -106,10 +105,10 @@
       },
       "expected": {
         "status": "completed",
-        "top_activity": "Park Walk",
-        "used_safe_fallback": false,
+        "top_activity": "Indoor Cycling Session",
+        "used_safe_fallback": true,
         "verdict": "approved",
-        "required_actions": ["load_broader_candidates"]
+        "required_actions": ["load_related_alternatives"]
       }
     },
     {
@@ -133,10 +132,91 @@
       },
       "expected": {
         "status": "completed",
-        "top_activity": "Outdoor Picnic",
+        "top_activity": "Public Garden Meetup",
         "used_safe_fallback": false,
         "verdict": "approved",
         "required_actions": ["load_preferred_candidates"]
+      }
+    },
+    {
+      "id": "light-rain-walking-remains-available",
+      "description": "Light rain should keep a tolerant walking activity available.",
+      "city": "Bursa",
+      "weather": {
+        "city": "Bursa",
+        "temperature_celsius": 20,
+        "precipitation_probability_percent": 25,
+        "wind_speed_kmh": 10,
+        "condition": "Drizzle"
+      },
+      "preferences": {
+        "preferred_activity_type": "walking",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 12,
+        "max_temperature_celsius": 28,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Park Walk",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_preferred_candidates"]
+      }
+    },
+    {
+      "id": "extreme-heat-sports-indoor-alternative",
+      "description": "Excessive heat should move outdoor sports to a close indoor sport.",
+      "city": "Adana",
+      "weather": {
+        "city": "Adana",
+        "temperature_celsius": 38,
+        "precipitation_probability_percent": 0,
+        "wind_speed_kmh": 8,
+        "condition": "Clear sky"
+      },
+      "preferences": {
+        "preferred_activity_type": "sports",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 15,
+        "max_temperature_celsius": 30,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Indoor Climbing",
+        "used_safe_fallback": true,
+        "verdict": "approved",
+        "required_actions": ["load_related_alternatives"]
+      }
+    },
+    {
+      "id": "rainy-photography-indoor-alternative",
+      "description": "Heavy rain should preserve the photography purpose indoors.",
+      "city": "Trabzon",
+      "weather": {
+        "city": "Trabzon",
+        "temperature_celsius": 19,
+        "precipitation_probability_percent": 85,
+        "wind_speed_kmh": 18,
+        "condition": "Rainy"
+      },
+      "preferences": {
+        "preferred_activity_type": "photography",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 12,
+        "max_temperature_celsius": 28,
+        "max_precipitation_probability_percent": 35,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Indoor Architecture Photography",
+        "used_safe_fallback": true,
+        "verdict": "approved",
+        "required_actions": ["load_related_alternatives"]
       }
     }
   ]
