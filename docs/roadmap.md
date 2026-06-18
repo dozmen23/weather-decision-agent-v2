@@ -21,6 +21,9 @@
   and must pass deterministic rules, scoring, and evaluation before being shown.
 - Lightweight JSONL recommendation history and feedback persistence connected
   to the Streamlit flow.
+- User Mode and Developer Mode split in Streamlit. User Mode keeps the
+  recommendation flow simple; Developer Mode exposes score breakdowns,
+  evaluator checks, LLM review, raw weather data, and agent trace.
 - Optional LLM explanation and second-review layer after deterministic
   decisions.
 
@@ -28,8 +31,8 @@
 
 1. Keep expanding deterministic and LLM evaluation scenarios as new behavior is
    added.
-2. Split the Streamlit interface into User Mode and Developer Mode, including
-   a cleaner history view.
+2. Refine the history view and decide which history details belong in User Mode
+   versus Developer Mode.
 3. Prepare deployment only after the application workflow is complete.
 
 ## Activity Catalog Direction

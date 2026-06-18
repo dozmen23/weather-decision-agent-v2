@@ -67,9 +67,12 @@ class ExplanationService:
                 "You explain a weather recommendation system's verified output. "
                 "Treat weather values, scores, warnings, evaluator checks, and "
                 "activity names as immutable facts. Do not invent activities, "
-                "change scores, or claim that an unsafe result is safe. Use concise "
-                "language suitable for an end user. Write every natural-language "
-                "field in Turkish."
+                "change scores, or claim that an unsafe result is safe. Write for "
+                "an everyday end user in warm, natural Turkish. Avoid technical "
+                "phrases such as deterministic, evaluator, score breakdown, total "
+                "score, component, trace, or rule engine. Do not list numeric score "
+                "components. Explain briefly why the recommendation feels sensible "
+                "for the weather and preference."
             ),
             user_prompt=json.dumps(
                 _build_explanation_context(result, preferences, evaluation),

@@ -11,8 +11,13 @@ from app.services.history_service import RecommendationHistoryRepository
 from app.ui.streamlit_app import (
     build_recommendation_service,
     build_preferences,
+    format_activity_name,
+    format_condition,
     format_forecast_date,
+    format_severity,
     format_trace_action,
+    format_view_mode,
+    format_warning,
     get_forecast_date_bounds,
     get_activity_types,
 )
@@ -58,6 +63,24 @@ class UIHelperTests(unittest.TestCase):
         self.assertEqual(
             format_trace_action(AgentAction.LOAD_GENERATED_CANDIDATES),
             "LLM aday aktiviteleri üretildi",
+        )
+
+    def test_view_mode_labels_are_stable(self) -> None:
+        self.assertEqual(format_view_mode("user"), "User Mode")
+        self.assertEqual(format_view_mode("developer"), "Developer Mode")
+
+    def test_user_facing_labels_are_turkish(self) -> None:
+        self.assertEqual(
+            format_activity_name("Indoor Track Walk"),
+            "Kapalı pist yürüyüşü",
+        )
+        self.assertEqual(format_condition("Partly cloudy"), "Parçalı bulutlu")
+        self.assertEqual(format_severity("MODERATE"), "temkinli")
+        self.assertEqual(
+            format_warning(
+                "Indoor/outdoor setting does not match the user's preference."
+            ),
+            "Hava nedeniyle açık alan yerine kapalı alan öneriyorum.",
         )
 
     def test_service_builder_accepts_history_repository_without_llm(self) -> None:

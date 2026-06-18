@@ -17,6 +17,8 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
   bu adaylar da aynı deterministik güvenlik kurallarından geçmeden önerilmez.
 - Opsiyonel OpenAI entegrasyonu ile sonucu açıklar ve ikinci hakem görüşü üretir.
 - Streamlit arayüzü üzerinden öneri akışını çalıştırır.
+- Streamlit'te User Mode ile sade öneri akışı, Developer Mode ile evaluator,
+  trace, raw hava verisi ve score breakdown detayları gösterir.
 - Reproducible evaluation senaryolarıyla exact match, fallback ve güvenli durma
   davranışlarını test eder.
 - Opsiyonel JSONL history repository ile öneri geçmişi ve kullanıcı feedback'i
@@ -45,7 +47,6 @@ Temel domain modelleri:
 
 Yakın vadeli geliştirme yönü:
 
-- Streamlit arayüzünde kullanıcı ve geliştirici modlarını ayırmak
 - geçmiş ekranını kullanıcı/geliştirici mod ayrımına göre düzenlemek
 
 ## Yerel Kurulum

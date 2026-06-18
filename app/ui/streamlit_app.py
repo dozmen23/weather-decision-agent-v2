@@ -64,6 +64,77 @@ TURKISH_MONTH_NAMES = (
     "Aralık",
 )
 
+USER_MODE = "user"
+DEVELOPER_MODE = "developer"
+
+ACTIVITY_NAME_LABELS = {
+    "Park Walk": "Park yürüyüşü",
+    "Riverside Walk": "Sahil yürüyüşü",
+    "Mall Walk": "AVM yürüyüşü",
+    "Indoor Track Walk": "Kapalı pist yürüyüşü",
+    "Treadmill Walk": "Koşu bandında yürüyüş",
+    "Outdoor Running": "Açık havada koşu",
+    "Trail Running": "Patika koşusu",
+    "Indoor Track Running": "Kapalı pist koşusu",
+    "Treadmill Running": "Koşu bandı",
+    "Indoor Cycling Session": "Kapalı bisiklet dersi",
+    "Stationary Bike Workout": "Sabit bisiklet antrenmanı",
+    "Indoor Swimming": "Kapalı havuz",
+    "Indoor Climbing": "Kapalı tırmanış",
+    "Indoor Court Training": "Kapalı saha antrenmanı",
+    "Museum Visit": "Müze ziyareti",
+    "Traditional Arts Exhibition": "Geleneksel sanatlar sergisi",
+    "Library Study Session": "Kütüphane çalışma seansı",
+    "Quiet Cafe Study": "Sessiz kafede çalışma",
+    "Indoor Architecture Photography": "Kapalı mimari fotoğrafçılık",
+}
+
+ACTIVITY_TYPE_LABELS = {
+    "walking": "Yürüyüş",
+    "running": "Koşu",
+    "cycling": "Bisiklet",
+    "sports": "Spor",
+    "culture": "Kültür",
+    "social": "Sosyal",
+    "study": "Çalışma",
+    "photography": "Fotoğraf",
+    "relaxation": "Rahatlama",
+}
+
+WARNING_LABELS = {
+    "Activity type does not match the user's first preference.": (
+        "Bu öneri ilk seçtiğin aktivite türünden biraz farklı."
+    ),
+    "Indoor/outdoor setting does not match the user's preference.": (
+        "Hava nedeniyle açık alan yerine kapalı alan öneriyorum."
+    ),
+    "Weather risk is high; a safer indoor alternative may be better.": (
+        "Hava riskli görünüyor; kapalı alan daha rahat olur."
+    ),
+    "Weather risk is moderate; check conditions before going outside.": (
+        "Hava biraz değişken; dışarı çıkmadan önce tekrar kontrol etmek "
+        "iyi olur."
+    ),
+}
+
+CONDITION_LABELS = {
+    "Clear sky": "Açık",
+    "Partly cloudy": "Parçalı bulutlu",
+    "Foggy": "Sisli",
+    "Drizzle": "Çiseleyen yağmur",
+    "Rainy": "Yağmurlu",
+    "Snowy": "Karlı",
+    "Thunderstorm": "Gök gürültülü",
+    "Unknown": "Bilinmiyor",
+}
+
+SEVERITY_LABELS = {
+    "LOW": "rahat",
+    "MODERATE": "temkinli",
+    "HIGH": "riskli",
+    "SEVERE": "çok riskli",
+}
+
 
 def main() -> None:
     """Render the complete Streamlit application."""
@@ -77,14 +148,23 @@ def main() -> None:
 
     activity_types = get_activity_types()
     history_repository = RecommendationHistoryRepository()
+    view_mode = _render_view_mode()
+    developer_mode = view_mode == DEVELOPER_MODE
     form_values = _render_preference_form(activity_types)
     if form_values is None:
         last_result = st.session_state.get("last_workflow_result")
         if isinstance(last_result, RecommendationWorkflowResult):
-            _render_workflow_result(last_result, history_repository)
-            _render_recent_history(history_repository)
+            _render_workflow_result(
+                last_result,
+                history_repository,
+                developer_mode=developer_mode,
+            )
+            _render_recent_history(
+                history_repository,
+                developer_mode=developer_mode,
+            )
         else:
-            _render_empty_state()
+            _render_empty_state(developer_mode)
         return
 
     try:
@@ -115,8 +195,15 @@ def main() -> None:
         return
 
     st.session_state["last_workflow_result"] = result
-    _render_workflow_result(result, history_repository)
-    _render_recent_history(history_repository)
+    _render_workflow_result(
+        result,
+        history_repository,
+        developer_mode=developer_mode,
+    )
+    _render_recent_history(
+        history_repository,
+        developer_mode=developer_mode,
+    )
 
 
 def get_activity_types() -> list[str]:
@@ -193,19 +280,62 @@ def format_forecast_date(forecast_date: date) -> str:
     )
 
 
+def format_view_mode(mode: str) -> str:
+    """Return a readable label for a UI view mode."""
+    if mode == DEVELOPER_MODE:
+        return "Developer Mode"
+    return "User Mode"
+
+
+def format_activity_name(activity_name: str) -> str:
+    """Return a Turkish display label for a known activity name."""
+    return ACTIVITY_NAME_LABELS.get(activity_name, activity_name)
+
+
+def format_activity_type(activity_type: str) -> str:
+    """Return a Turkish display label for an activity type."""
+    return ACTIVITY_TYPE_LABELS.get(activity_type, activity_type)
+
+
+def format_warning(warning: str) -> str:
+    """Return a user-facing warning label."""
+    return WARNING_LABELS.get(warning, warning)
+
+
+def format_condition(condition: str) -> str:
+    """Return a Turkish condition label."""
+    return CONDITION_LABELS.get(condition, condition)
+
+
+def format_severity(severity: str) -> str:
+    """Return a Turkish severity label."""
+    return SEVERITY_LABELS.get(severity, severity.lower())
+
+
 def _render_header() -> None:
     st.title("Weather Decision Agent")
     st.markdown(
         """
-        Hava koşullarını, kişisel sınırlarını ve aktivite kataloğunu birlikte
-        değerlendirir. Agent gerektiğinde aramayı genişletir veya güvenli kapalı
-        alan alternatiflerine geçer.
+        Bugünkü hava ve tercihlerini birlikte düşünerek sana en rahat
+        aktiviteyi önerir. Hava açık alan için iyi değilse yakın bir kapalı
+        alternatif bulur.
         """
     )
     st.caption(
-        "Karar kuralları ve puanlar deterministiktir. LLM yalnızca aday, "
-        "açıklama ve ikinci görüş desteği verir."
+        "Güvenlik kararları kurallarla verilir; LLM yalnızca daha anlaşılır "
+        "açıklama ve kontrollü aday desteği sağlar."
     )
+
+
+def _render_view_mode() -> str:
+    with st.sidebar:
+        st.header("Mod")
+        mode_label = st.radio(
+            "Görünüm",
+            options=["User Mode", "Developer Mode"],
+            horizontal=True,
+        )
+    return DEVELOPER_MODE if mode_label == "Developer Mode" else USER_MODE
 
 
 def _render_preference_form(
@@ -296,25 +426,32 @@ def _render_preference_form(
     }
 
 
-def _render_empty_state() -> None:
+def _render_empty_state(developer_mode: bool) -> None:
     st.info(
         "Soldaki tercihleri düzenleyip **Öneri üret** düğmesine basarak "
         "agent akışını başlat."
     )
     columns = st.columns(3)
-    columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
-    columns[1].metric("Evaluation kontrolleri", "6")
-    columns[2].metric("Otomatik test", "84 başarılı")
+    if developer_mode:
+        columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
+        columns[1].metric("Evaluation kontrolleri", "6")
+        columns[2].metric("Otomatik test", "86 başarılı")
+    else:
+        columns[0].metric("Görünüm", "Sade")
+        columns[1].metric("Geçmiş", "Aktif")
+        columns[2].metric("Feedback", "Hazır")
 
 
 def _render_workflow_result(
     result: RecommendationWorkflowResult,
     history_repository: RecommendationHistoryRepository,
+    developer_mode: bool,
 ) -> None:
     agent_result = result.agent_result
-    evaluation = result.deterministic_evaluation
 
-    _render_weather(agent_result.weather)
+    _render_weather(agent_result.weather, developer_mode)
+    if not developer_mode:
+        st.info(_format_user_weather_summary(agent_result.weather))
 
     if not agent_result.recommendations:
         st.warning(agent_result.message)
@@ -327,6 +464,7 @@ def _render_workflow_result(
             _render_recommendation_card(
                 index=index,
                 recommendation=recommendation,
+                developer_mode=developer_mode,
                 explanation=(
                     result.explanation.recommendation_details.get(
                         recommendation.activity.name
@@ -338,16 +476,17 @@ def _render_workflow_result(
 
     _render_feedback_controls(result, history_repository)
 
-    left_column, right_column = st.columns(2)
-    with left_column:
-        _render_evaluation(result)
-    with right_column:
-        _render_llm_judgment(result)
+    if developer_mode:
+        left_column, right_column = st.columns(2)
+        with left_column:
+            _render_evaluation(result)
+        with right_column:
+            _render_llm_judgment(result)
 
-    _render_agent_trace(agent_result.trace)
+        _render_agent_trace(agent_result.trace)
 
 
-def _render_weather(weather) -> None:
+def _render_weather(weather, developer_mode: bool) -> None:
     if weather.forecast_date is None:
         heading = f"Güncel hava: {weather.city}"
         temperature_label = f"{weather.temperature_celsius:.1f} °C"
@@ -368,6 +507,18 @@ def _render_weather(weather) -> None:
             temperature_label = f"{weather.temperature_celsius:.1f} °C"
 
     st.subheader(heading)
+    if not developer_mode:
+        st.markdown(
+            (
+                f"**Hava:** {format_condition(weather.condition)} · "
+                f"{temperature_label} · yağış "
+                f"%{weather.precipitation_probability_percent} · "
+                f"rüzgâr {weather.wind_speed_kmh:.1f} km/h · "
+                f"{format_severity(weather.severity_level.value)}"
+            )
+        )
+        return
+
     columns = st.columns(5)
     columns[0].metric("Sıcaklık", temperature_label)
     columns[1].metric(
@@ -375,67 +526,173 @@ def _render_weather(weather) -> None:
         f"%{weather.precipitation_probability_percent}",
     )
     columns[2].metric("Rüzgâr", f"{weather.wind_speed_kmh:.1f} km/h")
-    columns[3].metric("Durum", weather.condition)
-    columns[4].metric("Risk", weather.severity_level.value)
+    columns[3].metric("Durum", format_condition(weather.condition))
+    columns[4].metric("Risk", format_severity(weather.severity_level.value))
+
+    if developer_mode:
+        with st.expander("Raw weather data", expanded=False):
+            st.json(
+                {
+                    "city": weather.city,
+                    "forecast_date": (
+                        weather.forecast_date.isoformat()
+                        if weather.forecast_date
+                        else None
+                    ),
+                    "temperature_celsius": weather.temperature_celsius,
+                    "minimum_temperature_celsius": (
+                        weather.minimum_temperature_celsius
+                    ),
+                    "maximum_temperature_celsius": (
+                        weather.maximum_temperature_celsius
+                    ),
+                    "precipitation_probability_percent": (
+                        weather.precipitation_probability_percent
+                    ),
+                    "wind_speed_kmh": weather.wind_speed_kmh,
+                    "condition": weather.condition,
+                    "severity_level": weather.severity_level.value,
+                }
+            )
 
 
 def _render_recommendation_card(
     *,
     index: int,
     recommendation,
+    developer_mode: bool,
     explanation: str | None,
 ) -> None:
     with st.container(border=True):
         title_column, score_column = st.columns([4, 1.25])
         title_column.markdown(
-            f"### {index}. {recommendation.activity.name}"
+            f"### {index}. {format_activity_name(recommendation.activity.name)}"
         )
-        score_column.markdown(
-            (
-                '<div class="score-badge">'
-                '<span>Uygunluk</span>'
-                f"<strong>{recommendation.score:.1f}/100</strong>"
-                "</div>"
-            ),
-            unsafe_allow_html=True,
-        )
+        if developer_mode:
+            score_column.markdown(
+                (
+                    '<div class="score-badge">'
+                    '<span>Uygunluk</span>'
+                    f"<strong>{recommendation.score:.1f}/100</strong>"
+                    "</div>"
+                ),
+                unsafe_allow_html=True,
+            )
+        else:
+            score_column.markdown(
+                (
+                    '<div class="score-badge soft">'
+                    '<span>Durum</span>'
+                    f"<strong>{_format_user_fit_label(recommendation)}</strong>"
+                    "</div>"
+                ),
+                unsafe_allow_html=True,
+            )
 
         setting = (
             "Açık alan" if recommendation.activity.is_outdoor else "Kapalı alan"
         )
+        activity_type_label = format_activity_type(
+            recommendation.activity.activity_type
+        )
         st.caption(
-            f"Tür: {recommendation.activity.activity_type} | Ortam: {setting}"
+            f"{activity_type_label} · {setting}"
         )
 
-        if explanation:
+        if explanation and not developer_mode:
+            st.markdown(_select_user_explanation(recommendation, explanation))
+        elif explanation:
             st.markdown(explanation)
-        else:
+        elif developer_mode:
             st.markdown(
                 "Deterministik puan bileşenleri: "
                 + recommendation.reasoning
             )
+        else:
+            st.markdown(
+                _format_user_recommendation_reason(recommendation)
+            )
 
-        breakdown = recommendation.score_breakdown
-        score_columns = st.columns(4)
-        score_columns[0].metric(
-            "Hava güvenliği",
-            f"{breakdown.weather_safety:.1f}/30",
-        )
-        score_columns[1].metric(
-            "Tercih eşleşmesi",
-            f"{breakdown.preference_match:.1f}/35",
-        )
-        score_columns[2].metric(
-            "Konfor",
-            f"{breakdown.comfort_match:.1f}/20",
-        )
-        score_columns[3].metric(
-            "Pratiklik",
-            f"{breakdown.practicality:.1f}/15",
-        )
+        if developer_mode:
+            breakdown = recommendation.score_breakdown
+            score_columns = st.columns(4)
+            score_columns[0].metric(
+                "Hava güvenliği",
+                f"{breakdown.weather_safety:.1f}/30",
+            )
+            score_columns[1].metric(
+                "Tercih eşleşmesi",
+                f"{breakdown.preference_match:.1f}/35",
+            )
+            score_columns[2].metric(
+                "Konfor",
+                f"{breakdown.comfort_match:.1f}/20",
+            )
+            score_columns[3].metric(
+                "Pratiklik",
+                f"{breakdown.practicality:.1f}/15",
+            )
 
         for warning in recommendation.warnings:
-            st.warning(warning)
+            st.warning(format_warning(warning))
+
+
+def _format_user_recommendation_reason(recommendation) -> str:
+    setting = "açık alan" if recommendation.activity.is_outdoor else "kapalı alan"
+    activity_type = format_activity_type(recommendation.activity.activity_type).lower()
+    if not recommendation.activity.is_outdoor:
+        return (
+            f"Hava dışarıda pek rahat görünmediği için bu {activity_type} "
+            f"seçeneği daha güvenli ve konforlu bir {setting} alternatifi."
+        )
+    return (
+        f"Seçtiğin aktivite türüne yakın, hava koşullarıyla uyumlu bir "
+        f"{setting} seçeneği."
+    )
+
+
+def _select_user_explanation(recommendation, explanation: str) -> str:
+    technical_markers = (
+        "/100",
+        "/30",
+        "/35",
+        "/20",
+        "/15",
+        "puan",
+        "score",
+        "breakdown",
+        "deterministik",
+        "evaluator",
+    )
+    normalized = explanation.casefold()
+    if any(marker in normalized for marker in technical_markers):
+        return _format_user_recommendation_reason(recommendation)
+    return explanation
+
+
+def _format_user_fit_label(recommendation) -> str:
+    if recommendation.score >= 85:
+        return "Çok uygun"
+    if recommendation.score >= 70:
+        return "Uygun"
+    return "Dikkatli"
+
+
+def _format_user_weather_summary(weather) -> str:
+    if weather.severity_level.value in {"HIGH", "SEVERE"}:
+        return (
+            "Hava açık alan için zorlayıcı görünüyor. Bu yüzden daha güvenli "
+            "kapalı seçeneklere öncelik verdim."
+        )
+    if weather.severity_level.value == "MODERATE":
+        return (
+            "Hava fena değil ama biraz temkin istiyor. Açık alan yerine daha "
+            "rahat bir kapalı alternatif öne çıkabilir."
+        )
+    return (
+        "Hava genel olarak rahat görünüyor; tercihlerine yakın seçenekler "
+        "önde."
+    )
 
 
 def _render_feedback_controls(
@@ -511,6 +768,7 @@ def _store_feedback(
 
 def _render_recent_history(
     history_repository: RecommendationHistoryRepository,
+    developer_mode: bool,
 ) -> None:
     try:
         recent_records = history_repository.list_recent(limit=5)
@@ -536,9 +794,18 @@ def _render_recent_history(
             st.markdown(
                 f"**{record.city} · {record.status}**"
             )
-            st.caption(
-                f"{recommendation_names} | feedback: {feedback_label}"
-            )
+            if developer_mode:
+                generated_label = (
+                    "generated" if record.used_generated_candidates else "catalog"
+                )
+                st.caption(
+                    f"{recommendation_names} | feedback: {feedback_label} | "
+                    f"{generated_label} | {record.created_at}"
+                )
+            else:
+                st.caption(
+                    f"{recommendation_names} | feedback: {feedback_label}"
+                )
 
 
 def _render_evaluation(result: RecommendationWorkflowResult) -> None:
@@ -629,6 +896,9 @@ def _render_styles() -> None:
             display: block;
             font-size: 1.45rem;
             white-space: nowrap;
+        }
+        .score-badge.soft strong {
+            font-size: 1.1rem;
         }
         </style>
         """,
