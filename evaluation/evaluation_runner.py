@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from app.agent.decision_agent import DecisionAgent
-from app.models.activity import Activity
+from app.models.activity import Activity, ActivityIntensity, CostLevel
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 from app.services.activity_service import ActivityService
@@ -273,6 +273,19 @@ def _parse_preferences(
                 raw["max_precipitation_probability_percent"]
             ),
             max_wind_speed_kmh=float(raw["max_wind_speed_kmh"]),
+            max_cost_level=CostLevel(
+                str(raw.get("max_cost_level", CostLevel.HIGH.value))
+            ),
+            max_duration_minutes=int(raw.get("max_duration_minutes", 240)),
+            preferred_intensity=_parse_optional_intensity(
+                raw.get("preferred_intensity")
+            ),
+            avoid_reservations=bool(raw.get("avoid_reservations", False)),
+            suitable_for=(
+                str(raw["suitable_for"])
+                if raw.get("suitable_for") is not None
+                else None
+            ),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise EvaluationDataError(
@@ -286,6 +299,12 @@ def _require_boolean(value: Any, case_id: str) -> bool:
             f"Evaluation case '{case_id}' has a non-boolean preference."
         )
     return value
+
+
+def _parse_optional_intensity(value: Any) -> ActivityIntensity | None:
+    if value is None:
+        return None
+    return ActivityIntensity(str(value))
 
 
 def _parse_inline_activities(

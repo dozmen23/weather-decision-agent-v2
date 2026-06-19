@@ -102,6 +102,37 @@ class ActivityGenerationServiceTests(unittest.TestCase):
                 self.preferences,
             )
 
+    def test_unrelated_generated_activity_is_rejected(self) -> None:
+        client = FakeStructuredLLMClient(
+            {
+                "activities": [
+                    {
+                        "name": "Indoor Movie Night",
+                        "activity_type": "culture",
+                        "is_outdoor": False,
+                        "min_temperature_celsius": -20,
+                        "max_temperature_celsius": 50,
+                        "max_precipitation_probability_percent": 100,
+                        "max_wind_speed_kmh": 100,
+                        "purpose": "entertainment",
+                        "intensity": "low",
+                        "duration_minutes": 120,
+                        "cost_level": "medium",
+                        "weather_sensitivity": "none",
+                        "requires_reservation": False,
+                        "suitable_for": ["friends"],
+                        "tags": ["culture", "indoor"],
+                    }
+                ]
+            }
+        )
+
+        with self.assertRaisesRegex(LLMServiceError, "unrelated"):
+            ActivityGenerationService(client).generate(
+                self.weather,
+                self.preferences,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -84,7 +84,7 @@ def score_activity(
         wind_score = 15.0
 
     weather_safety_score = precipitation_score + wind_score
-    practicality_score = _practicality_score(activity, weather)
+    practicality_score = _practicality_score(activity, weather, preferences)
 
     total_score = round(
         preference_match_score
@@ -170,7 +170,11 @@ def _remaining_margin_score(
     return round(maximum_score * ratio, 2)
 
 
-def _practicality_score(activity: Activity, weather: WeatherData) -> float:
+def _practicality_score(
+    activity: Activity,
+    weather: WeatherData,
+    preferences: UserPreferences,
+) -> float:
     score = 15.0
 
     if activity.cost_level is CostLevel.MEDIUM:
@@ -185,6 +189,9 @@ def _practicality_score(activity: Activity, weather: WeatherData) -> float:
         score -= 2.0
     elif activity.duration_minutes < 20:
         score -= 1.0
+
+    if not activity.is_outdoor:
+        score -= preferences.indoor_feedback_penalty
 
     if activity.is_outdoor:
         if (

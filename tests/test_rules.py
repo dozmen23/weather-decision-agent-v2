@@ -3,7 +3,7 @@
 import unittest
 
 from app.core.rules import evaluate_activity
-from app.models.activity import Activity
+from app.models.activity import Activity, ActivityIntensity, CostLevel
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 
@@ -96,6 +96,57 @@ class ActivityRuleTests(unittest.TestCase):
 
         self.assertTrue(result.is_eligible)
         self.assertEqual(len(result.warnings), 2)
+
+    def test_practical_preferences_filter_activity(self) -> None:
+        preferences = UserPreferences(
+            preferred_activity_type="sports",
+            prefers_outdoor=False,
+            min_temperature_celsius=10,
+            max_temperature_celsius=30,
+            max_precipitation_probability_percent=40,
+            max_wind_speed_kmh=25,
+            max_cost_level=CostLevel.LOW,
+            max_duration_minutes=60,
+            preferred_intensity=ActivityIntensity.MODERATE,
+            avoid_reservations=True,
+            suitable_for="families",
+        )
+        activity = Activity(
+            name="Premium court session",
+            activity_type="sports",
+            is_outdoor=False,
+            min_temperature_celsius=-20,
+            max_temperature_celsius=50,
+            max_precipitation_probability_percent=100,
+            max_wind_speed_kmh=100,
+            intensity=ActivityIntensity.HIGH,
+            duration_minutes=90,
+            cost_level=CostLevel.MEDIUM,
+            requires_reservation=True,
+            suitable_for=("friends", "teams"),
+        )
+        weather = WeatherData("Istanbul", 22, 5, 5, "Clear sky")
+
+        result = evaluate_activity(weather, preferences, activity)
+
+        self.assertFalse(result.is_eligible)
+        self.assertIn(
+            "Activity cost exceeds the user's budget preference.",
+            result.failed_rules,
+        )
+        self.assertIn(
+            "Activity duration exceeds the user's time preference.",
+            result.failed_rules,
+        )
+        self.assertIn("Activity requires a reservation.", result.failed_rules)
+        self.assertIn(
+            "Activity intensity exceeds the user's preference.",
+            result.failed_rules,
+        )
+        self.assertIn(
+            "Activity is not suitable for the selected company.",
+            result.failed_rules,
+        )
 
 
 if __name__ == "__main__":

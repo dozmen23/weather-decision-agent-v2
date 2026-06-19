@@ -13,6 +13,7 @@ from app.llm.factory import (
     create_llm_client,
     load_llm_settings,
 )
+from app.models.activity import ActivityIntensity, CostLevel
 from app.models.recommendation_history import (
     FeedbackValue,
     RecommendationHistoryItem,
@@ -28,6 +29,7 @@ from app.services.recommendation_service import (
     RecommendationWorkflowResult,
 )
 from app.services.weather_service import WeatherService, WeatherServiceError
+from evaluation.evaluation_runner import EvaluationDataError, EvaluationRunner
 
 
 ACTION_LABELS = {
@@ -163,6 +165,55 @@ SEVERITY_LABELS = {
     "SEVERE": "çok riskli",
 }
 
+COST_LEVEL_LABELS = {
+    CostLevel.FREE: "Ücretsiz",
+    CostLevel.LOW: "Düşük",
+    CostLevel.MEDIUM: "Orta",
+    CostLevel.HIGH: "Yüksek",
+}
+
+INTENSITY_LABELS = {
+    None: "Fark etmez",
+    ActivityIntensity.LOW: "Hafif",
+    ActivityIntensity.MODERATE: "Orta",
+    ActivityIntensity.HIGH: "Yüksek",
+}
+
+TEMPERATURE_LEVEL_RANGES = {
+    "Serin": (5, 20),
+    "Ilık": (12, 30),
+    "Sıcak": (18, 35),
+    "Fark etmez": (-10, 45),
+}
+
+PRECIPITATION_LEVEL_LIMITS = {
+    "Az": 25,
+    "Orta": 45,
+    "Çok": 70,
+    "Fark etmez": 100,
+}
+
+WIND_LEVEL_LIMITS = {
+    "Az": 18,
+    "Orta": 30,
+    "Çok": 45,
+    "Fark etmez": 100,
+}
+
+DURATION_LEVEL_LIMITS = {
+    "Kısa": 60,
+    "Orta": 120,
+    "Uzun": 180,
+    "Fark etmez": 240,
+}
+
+PARTICIPANT_LABELS = {
+    None: "Fark etmez",
+    "solo": "Tek başıma",
+    "friends": "Arkadaşla",
+    "families": "Aileyle",
+}
+
 
 def main() -> None:
     """Render the complete Streamlit application."""
@@ -192,8 +243,12 @@ def main() -> None:
                 history_repository,
                 developer_mode=developer_mode,
             )
+            if developer_mode:
+                _render_evaluation_dashboard()
         else:
             _render_empty_state(developer_mode)
+            if developer_mode:
+                _render_evaluation_dashboard()
         return
 
     try:
@@ -233,6 +288,8 @@ def main() -> None:
         history_repository,
         developer_mode=developer_mode,
     )
+    if developer_mode:
+        _render_evaluation_dashboard()
 
 
 def get_activity_types() -> list[str]:
@@ -251,6 +308,11 @@ def build_preferences(
     temperature_range: tuple[int, int],
     max_precipitation_probability_percent: int,
     max_wind_speed_kmh: int,
+    max_cost_level: CostLevel = CostLevel.HIGH,
+    max_duration_minutes: int = 240,
+    preferred_intensity: ActivityIntensity | None = None,
+    avoid_reservations: bool = False,
+    suitable_for: str | None = None,
 ) -> UserPreferences:
     """Convert validated UI values into the domain preference model."""
     minimum_temperature, maximum_temperature = temperature_range
@@ -268,6 +330,11 @@ def build_preferences(
             max_precipitation_probability_percent
         ),
         max_wind_speed_kmh=float(max_wind_speed_kmh),
+        max_cost_level=max_cost_level,
+        max_duration_minutes=max_duration_minutes,
+        preferred_intensity=preferred_intensity,
+        avoid_reservations=avoid_reservations,
+        suitable_for=suitable_for,
     )
 
 
@@ -378,6 +445,24 @@ def format_severity(severity: str) -> str:
     return SEVERITY_LABELS.get(severity, severity.lower())
 
 
+def format_cost_level(cost_level: CostLevel) -> str:
+    """Return a Turkish cost level label."""
+    return COST_LEVEL_LABELS.get(cost_level, cost_level.value)
+
+
+def format_intensity(intensity: ActivityIntensity | None) -> str:
+    """Return a Turkish intensity label."""
+    return INTENSITY_LABELS.get(
+        intensity,
+        intensity.value if intensity is not None else "Fark etmez",
+    )
+
+
+def format_participant_preference(suitable_for: str | None) -> str:
+    """Return a Turkish participant preference label."""
+    return PARTICIPANT_LABELS.get(suitable_for, suitable_for or "Fark etmez")
+
+
 def format_feedback_value(feedback: FeedbackValue | None) -> str:
     """Return a user-facing feedback label."""
     if feedback is FeedbackValue.POSITIVE:
@@ -405,6 +490,22 @@ def format_history_recommendations(
     return ", ".join(
         format_activity_name(item.activity_name) for item in recommendations
     )
+
+
+def format_evaluation_verdict(verdict: str) -> str:
+    """Return a readable evaluator verdict label."""
+    if verdict == "approved":
+        return "Onaylandı"
+    if verdict == "rejected":
+        return "Reddedildi"
+    if verdict == "no_recommendation":
+        return "Güvenli öneri yok"
+    return verdict
+
+
+def format_scenario_result(passed: bool) -> str:
+    """Return a compact scenario result label."""
+    return "Geçti" if passed else "Kaldı"
 
 
 def _render_header(developer_mode: bool) -> None:
@@ -459,24 +560,54 @@ def _render_preference_form(
                 options=["Açık alan", "Kapalı alan"],
                 horizontal=True,
             )
-            temperature_range = st.slider(
-                "Konfor sıcaklığı (°C)",
-                min_value=-10,
-                max_value=45,
-                value=(12, 30),
+            temperature_level = st.selectbox(
+                "Sıcaklık tercihi",
+                options=list(TEMPERATURE_LEVEL_RANGES),
+                index=1,
             )
-            precipitation_limit = st.slider(
-                "En fazla yağış ihtimali (%)",
-                min_value=0,
-                max_value=100,
-                value=40,
+            precipitation_level = st.selectbox(
+                "Yağış toleransı",
+                options=list(PRECIPITATION_LEVEL_LIMITS),
+                index=1,
             )
-            wind_limit = st.slider(
-                "En fazla rüzgâr hızı (km/h)",
-                min_value=0,
-                max_value=100,
-                value=25,
+            wind_level = st.selectbox(
+                "Rüzgâr toleransı",
+                options=list(WIND_LEVEL_LIMITS),
+                index=1,
             )
+            with st.expander("Daha fazla tercih", expanded=False):
+                max_cost_level = st.selectbox(
+                    "En fazla bütçe",
+                    options=list(CostLevel),
+                    index=list(CostLevel).index(CostLevel.HIGH),
+                    format_func=format_cost_level,
+                )
+                duration_level = st.selectbox(
+                    "Süre",
+                    options=list(DURATION_LEVEL_LIMITS),
+                    index=2,
+                )
+                preferred_intensity = st.selectbox(
+                    "Yoğunluk",
+                    options=[
+                        None,
+                        ActivityIntensity.LOW,
+                        ActivityIntensity.MODERATE,
+                        ActivityIntensity.HIGH,
+                    ],
+                    index=0,
+                    format_func=format_intensity,
+                )
+                avoid_reservations = st.checkbox(
+                    "Rezervasyon istemiyorum",
+                    value=False,
+                )
+                suitable_for = st.selectbox(
+                    "Kimle?",
+                    options=[None, "solo", "friends", "families"],
+                    index=0,
+                    format_func=format_participant_preference,
+                )
             recommendation_limit = st.slider(
                 "Öneri sayısı",
                 min_value=1,
@@ -512,9 +643,16 @@ def _render_preference_form(
         "preferences": {
             "preferred_activity_type": preferred_activity_type,
             "prefers_outdoor": setting == "Açık alan",
-            "temperature_range": temperature_range,
-            "max_precipitation_probability_percent": precipitation_limit,
-            "max_wind_speed_kmh": wind_limit,
+            "temperature_range": TEMPERATURE_LEVEL_RANGES[temperature_level],
+            "max_precipitation_probability_percent": (
+                PRECIPITATION_LEVEL_LIMITS[precipitation_level]
+            ),
+            "max_wind_speed_kmh": WIND_LEVEL_LIMITS[wind_level],
+            "max_cost_level": max_cost_level,
+            "max_duration_minutes": DURATION_LEVEL_LIMITS[duration_level],
+            "preferred_intensity": preferred_intensity,
+            "avoid_reservations": avoid_reservations,
+            "suitable_for": suitable_for,
         },
     }
 
@@ -592,7 +730,7 @@ def _render_empty_state(developer_mode: bool) -> None:
     if developer_mode:
         columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
         columns[1].metric("Evaluation kontrolleri", "6")
-        columns[2].metric("Otomatik test", "92 başarılı")
+        columns[2].metric("Otomatik test", "102 başarılı")
     else:
         columns[0].metric("Görünüm", "Sade")
         columns[1].metric("Geçmiş", "Aktif")
@@ -629,6 +767,8 @@ def _render_workflow_result(
                     if result.explanation
                     else None
                 ),
+                weather=agent_result.weather,
+                preferences=result.preferences,
             )
 
     _render_feedback_controls(result, history_repository)
@@ -719,6 +859,8 @@ def _render_recommendation_card(
     recommendation,
     developer_mode: bool,
     explanation: str | None,
+    weather,
+    preferences: UserPreferences | None,
 ) -> None:
     with st.container(border=True):
         title_column, score_column = st.columns([4, 1.25])
@@ -760,6 +902,8 @@ def _render_recommendation_card(
             _render_user_recommendation_explanation(
                 recommendation,
                 explanation,
+                weather,
+                preferences,
             )
         elif explanation:
             st.markdown(explanation)
@@ -796,37 +940,95 @@ def _render_recommendation_card(
 def _render_user_recommendation_explanation(
     recommendation,
     explanation: str | None,
+    weather,
+    preferences: UserPreferences | None,
 ) -> None:
     reason = (
-        _select_user_explanation(recommendation, explanation)
+        _select_user_explanation(
+            recommendation,
+            explanation,
+            weather,
+            preferences,
+        )
         if explanation
-        else _format_user_recommendation_reason(recommendation)
+        else _format_user_recommendation_reason(
+            recommendation,
+            weather,
+            preferences,
+        )
     )
     st.markdown("**Neden bunu önerdim?**")
     st.write(reason)
 
-    attention_items = _build_attention_items(recommendation)
+    attention_items = _build_attention_items(
+        recommendation,
+        weather,
+        preferences,
+    )
     if attention_items:
         st.markdown("**Dikkat et**")
         for item in attention_items:
             st.caption(f"- {item}")
 
 
-def _format_user_recommendation_reason(recommendation) -> str:
+def _format_user_recommendation_reason(
+    recommendation,
+    weather=None,
+    preferences: UserPreferences | None = None,
+) -> str:
     setting = "açık alan" if recommendation.activity.is_outdoor else "kapalı alan"
-    activity_type = format_activity_type(recommendation.activity.activity_type).lower()
+    activity_type = format_activity_type(
+        recommendation.activity.activity_type
+    ).lower()
+    if (
+        not recommendation.activity.is_outdoor
+        and preferences is not None
+        and preferences.prefers_outdoor
+    ):
+        preferred_type = format_activity_type(
+            preferences.preferred_activity_type
+        ).lower()
+        recommendation_name = format_activity_name(
+            recommendation.activity.name
+        ).lower()
+        reasons = _format_weather_limit_reasons(weather, preferences)
+        if reasons:
+            return (
+                f"İlk tercihin açık alanda {preferred_type} yapmaktı; "
+                f"{_join_reason_parts(reasons)}. Bu yüzden "
+                f"{recommendation_name} daha rahat bir seçenek."
+            )
+        return (
+            f"Açık alan bugün biraz temkin istiyor. Bu yüzden "
+            f"{recommendation_name} daha kontrollü ve rahat bir alternatif."
+        )
+
     if not recommendation.activity.is_outdoor:
         return (
             f"Hava dışarıda pek rahat görünmediği için bu {activity_type} "
             f"seçeneği daha güvenli ve konforlu bir {setting} alternatifi."
         )
+
+    if weather is not None and preferences is not None:
+        return (
+            f"Bu {activity_type} seçeneği hava sınırlarınla uyumlu görünüyor: "
+            f"yağış %{weather.precipitation_probability_percent}, rüzgâr "
+            f"{weather.wind_speed_kmh:.0f} km/h ve risk "
+            f"{format_severity(weather.severity_level.value)}."
+        )
+
     return (
         f"Seçtiğin aktivite türüne yakın, hava koşullarıyla uyumlu bir "
         f"{setting} seçeneği."
     )
 
 
-def _select_user_explanation(recommendation, explanation: str) -> str:
+def _select_user_explanation(
+    recommendation,
+    explanation: str,
+    weather=None,
+    preferences: UserPreferences | None = None,
+) -> str:
     technical_markers = (
         "/100",
         "/30",
@@ -841,12 +1043,77 @@ def _select_user_explanation(recommendation, explanation: str) -> str:
     )
     normalized = explanation.casefold()
     if any(marker in normalized for marker in technical_markers):
-        return _format_user_recommendation_reason(recommendation)
+        return _format_user_recommendation_reason(
+            recommendation,
+            weather,
+            preferences,
+        )
     return explanation
 
 
-def _build_attention_items(recommendation) -> list[str]:
+def _format_weather_limit_reasons(
+    weather,
+    preferences: UserPreferences,
+) -> list[str]:
+    if weather is None:
+        return []
+
+    reasons: list[str] = []
+    if weather.severity_level.value == "SEVERE":
+        reasons.append("hava çok riskli görünüyor")
+    elif weather.severity_level.value == "HIGH":
+        reasons.append("hava riskli görünüyor")
+
+    precipitation = weather.precipitation_probability_percent
+    if precipitation > preferences.max_precipitation_probability_percent:
+        reasons.append(
+            f"yağış ihtimali %{precipitation}, sınırın olan "
+            f"%{preferences.max_precipitation_probability_percent} değerini aşıyor"
+        )
+
+    wind_speed = weather.wind_speed_kmh
+    if wind_speed > preferences.max_wind_speed_kmh:
+        reasons.append(
+            f"rüzgâr {wind_speed:.0f} km/h, sınırın olan "
+            f"{preferences.max_wind_speed_kmh:.0f} km/h değerini aşıyor"
+        )
+
+    temperature = weather.temperature_celsius
+    if temperature < preferences.min_temperature_celsius:
+        reasons.append(
+            f"sıcaklık {temperature:.0f}°C, konfor aralığının altında"
+        )
+    elif temperature > preferences.max_temperature_celsius:
+        reasons.append(
+            f"sıcaklık {temperature:.0f}°C, konfor aralığının üstünde"
+        )
+
+    return reasons
+
+
+def _join_reason_parts(reasons: list[str]) -> str:
+    if len(reasons) <= 1:
+        return "".join(reasons)
+    return ", ".join(reasons[:-1]) + " ve " + reasons[-1]
+
+
+def _build_attention_items(
+    recommendation,
+    weather=None,
+    preferences: UserPreferences | None = None,
+) -> list[str]:
     items = [format_warning(warning) for warning in recommendation.warnings]
+    if (
+        not recommendation.activity.is_outdoor
+        and preferences is not None
+        and preferences.prefers_outdoor
+    ):
+        reasons = _format_weather_limit_reasons(weather, preferences)
+        if reasons:
+            items.append(
+                "Açık alanı yine de tercih edersen hava değişimini tekrar "
+                "kontrol et."
+            )
     if not recommendation.activity.is_outdoor and not items:
         items.append(
             "Kapalı alan olduğu için hava koşullarından daha az etkilenir."
@@ -1019,6 +1286,73 @@ def _render_developer_history(recent_records) -> None:
                         ],
                     }
                 )
+
+
+def _render_evaluation_dashboard() -> None:
+    st.subheader("Evaluation dashboard")
+    st.caption(
+        "Kayıtlı senaryolarla agent karar akışını yeniden çalıştırır ve "
+        "beklenen davranışla karşılaştırır."
+    )
+
+    if not st.button(
+        "Evaluation senaryolarını çalıştır",
+        key="run_evaluation_dashboard",
+    ):
+        st.info("Senaryoları görmek için evaluation çalıştır.")
+        return
+
+    try:
+        report = EvaluationRunner().run()
+    except EvaluationDataError as exc:
+        st.error(f"Evaluation çalıştırılamadı: {exc}")
+        return
+
+    summary = report.summary
+    columns = st.columns(4)
+    columns[0].metric(
+        "Senaryo",
+        f"{summary.passed_cases}/{summary.total_cases}",
+        f"%{summary.scenario_pass_rate_percent:.0f}",
+    )
+    columns[1].metric(
+        "Sistem geçerliliği",
+        f"%{summary.system_validity_rate_percent:.0f}",
+    )
+    columns[2].metric(
+        "Öneri başarısı",
+        f"%{summary.recommendation_success_rate_percent:.0f}",
+    )
+    columns[3].metric(
+        "Ortalama kalite",
+        f"{summary.average_quality_score:.0f}/100",
+    )
+
+    if summary.passed_cases == summary.total_cases:
+        st.success("Tüm evaluation senaryoları geçti.")
+    else:
+        st.error("Bazı evaluation senaryoları beklenen davranışı vermedi.")
+
+    with st.expander("Senaryo detayları", expanded=True):
+        for scenario in report.scenarios:
+            result_label = format_scenario_result(scenario.passed)
+            st.markdown(
+                f"**{result_label} · {scenario.case_id}**"
+            )
+            st.caption(scenario.description)
+            top_activity = (
+                format_activity_name(scenario.actual_top_activity)
+                if scenario.actual_top_activity
+                else "Öneri yok"
+            )
+            st.caption(
+                f"status: {scenario.actual_status} | top: {top_activity} | "
+                f"fallback: {scenario.used_safe_fallback} | verdict: "
+                f"{format_evaluation_verdict(scenario.evaluator_verdict)} | "
+                f"quality: {scenario.quality_score:.0f}/100"
+            )
+            for mismatch in scenario.mismatches:
+                st.warning(mismatch)
 
 
 def _render_evaluation(result: RecommendationWorkflowResult) -> None:

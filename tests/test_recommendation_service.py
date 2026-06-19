@@ -10,6 +10,11 @@ from app.agent.decision_agent import AgentResult, DecisionAgent
 from app.llm.judge_service import LLMJudgeVerdict
 from app.models.activity import Activity
 from app.models.recommendation import Recommendation
+from app.models.recommendation_history import (
+    FeedbackValue,
+    RecommendationHistoryItem,
+    RecommendationHistoryRecord,
+)
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 from app.services.history_service import RecommendationHistoryRepository
@@ -126,6 +131,44 @@ class UnsafeGeneratedActivityLLMClient:
                 "confidence": 0.9,
                 "rationale": "Güvensiz adaylar öneriye çevrilmemiş.",
                 "concerns": [],
+            }
+        raise AssertionError(f"Unexpected schema: {schema_name}")
+
+
+class UnrelatedGeneratedActivityLLMClient:
+    def __init__(self) -> None:
+        self.schemas: list[str] = []
+
+    def generate_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        schema_name: str,
+        json_schema: dict[str, Any],
+    ) -> dict[str, Any]:
+        self.schemas.append(schema_name)
+        if schema_name == "llm_activity_candidates":
+            return {
+                "activities": [
+                    {
+                        "name": "Indoor Movie Night",
+                        "activity_type": "culture",
+                        "is_outdoor": False,
+                        "min_temperature_celsius": -20,
+                        "max_temperature_celsius": 50,
+                        "max_precipitation_probability_percent": 100,
+                        "max_wind_speed_kmh": 100,
+                        "purpose": "entertainment",
+                        "intensity": "low",
+                        "duration_minutes": 120,
+                        "cost_level": "medium",
+                        "weather_sensitivity": "none",
+                        "requires_reservation": False,
+                        "suitable_for": ["friends"],
+                        "tags": ["culture", "indoor"],
+                    }
+                ]
             }
         raise AssertionError(f"Unexpected schema: {schema_name}")
 
@@ -291,6 +334,7 @@ class RecommendationServiceTests(unittest.TestCase):
         result = service.recommend("Istanbul", self.preferences)
 
         self.assertTrue(result.deterministic_evaluation.system_behavior_valid)
+        self.assertEqual(result.preferences, self.preferences)
         self.assertIsNone(result.explanation)
         self.assertIsNone(result.llm_judgment)
 
@@ -349,6 +393,30 @@ class RecommendationServiceTests(unittest.TestCase):
             self.assertEqual(
                 repository.list_recent()[0].record_id,
                 result.history_record.record_id,
+            )
+
+    def test_negative_indoor_feedback_adds_small_indoor_penalty(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            repository = RecommendationHistoryRepository(
+                Path(temporary_directory) / "history.jsonl"
+            )
+            repository.append(
+                _history_record("first", FeedbackValue.NEGATIVE, False)
+            )
+            repository.append(
+                _history_record("second", FeedbackValue.NEGATIVE, False)
+            )
+            service = RecommendationService(
+                agent=DecisionAgent(StubWeatherTool(), StubActivityTool()),
+                history_repository=repository,
+            )
+
+            result = service.recommend("Istanbul", self.preferences)
+
+            self.assertEqual(result.preferences.indoor_feedback_penalty, 2.0)
+            self.assertEqual(
+                result.history_record.preferences["indoor_feedback_penalty"],
+                2.0,
             )
 
     def test_llm_generated_activity_is_validated_before_explanation(self) -> None:
@@ -414,6 +482,58 @@ class RecommendationServiceTests(unittest.TestCase):
             result.deterministic_evaluation.system_behavior_valid
         )
         self.assertIn("llm_activity_candidates", llm_client.schemas)
+
+    def test_unrelated_llm_candidate_keeps_safe_no_recommendation(self) -> None:
+        preferences = UserPreferences(
+            preferred_activity_type="running",
+            prefers_outdoor=True,
+            min_temperature_celsius=10,
+            max_temperature_celsius=28,
+            max_precipitation_probability_percent=40,
+            max_wind_speed_kmh=25,
+        )
+        llm_client = UnrelatedGeneratedActivityLLMClient()
+        service = RecommendationService(
+            agent=DecisionAgent(
+                StormWeatherTool(),
+                EmptyActivityTool(),
+            ),
+            llm_client=llm_client,
+        )
+
+        result = service.recommend("Istanbul", preferences)
+
+        self.assertEqual(result.agent_result.status, "no_recommendation")
+        self.assertEqual(result.agent_result.recommendations, [])
+        self.assertIsNone(result.explanation)
+        self.assertIsNone(result.llm_judgment)
+        self.assertEqual(llm_client.schemas, ["llm_activity_candidates"])
+
+def _history_record(
+    record_id: str,
+    feedback: FeedbackValue,
+    is_outdoor: bool,
+) -> RecommendationHistoryRecord:
+    return RecommendationHistoryRecord(
+        record_id=record_id,
+        created_at="2026-06-19T10:00:00+00:00",
+        city="Istanbul",
+        target_date=None,
+        status="completed",
+        used_safe_fallback=not is_outdoor,
+        used_generated_candidates=False,
+        weather={"city": "Istanbul", "severity_level": "LOW"},
+        preferences={"preferred_activity_type": "walking"},
+        recommendations=[
+            RecommendationHistoryItem(
+                activity_name="Indoor Track Walk",
+                activity_type="walking",
+                is_outdoor=is_outdoor,
+                score=90.0,
+            )
+        ],
+        feedback=feedback,
+    )
 
 
 if __name__ == "__main__":

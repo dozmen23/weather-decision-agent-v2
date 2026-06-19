@@ -194,6 +194,51 @@ class LLMServiceTests(unittest.TestCase):
                 self.evaluation,
             )
 
+    def test_explanation_rejects_missing_recommendation_detail(self) -> None:
+        client = FakeStructuredLLMClient(
+            [
+                {
+                    "summary": "A recommendation.",
+                    "weather_context": "Weather context.",
+                    "recommendation_details": [],
+                    "fallback_note": "",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(LLMServiceError, "every recommendation"):
+            ExplanationService(client).generate(
+                self.result,
+                self.preferences,
+                self.evaluation,
+            )
+
+    def test_explanation_rejects_duplicate_recommendation_detail(self) -> None:
+        duplicate_detail = {
+            "activity_name": "Park Walk",
+            "explanation": "It matches the verified result.",
+        }
+        client = FakeStructuredLLMClient(
+            [
+                {
+                    "summary": "A recommendation.",
+                    "weather_context": "Weather context.",
+                    "recommendation_details": [
+                        duplicate_detail,
+                        duplicate_detail,
+                    ],
+                    "fallback_note": "",
+                }
+            ]
+        )
+
+        with self.assertRaisesRegex(LLMServiceError, "duplicated"):
+            ExplanationService(client).generate(
+                self.result,
+                self.preferences,
+                self.evaluation,
+            )
+
     def test_judge_returns_structured_second_opinion(self) -> None:
         client = FakeStructuredLLMClient(
             [

@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.agent.planner import AgentAction
-from app.models.activity import Activity
+from app.models.activity import Activity, ActivityIntensity, CostLevel
 from app.models.recommendation import Recommendation
 from app.models.recommendation_history import (
     FeedbackValue,
@@ -18,17 +18,23 @@ from app.services.activity_service import ActivityService
 from app.services.history_service import RecommendationHistoryRepository
 from app.ui.streamlit_app import (
     _build_attention_items,
+    _format_user_recommendation_reason,
     _select_user_explanation,
     build_recommendation_service,
     build_preferences,
     format_activity_name,
     format_activity_type,
     format_condition,
+    format_cost_level,
     format_forecast_card_label,
     format_forecast_date,
     format_feedback_value,
+    format_evaluation_verdict,
     format_history_recommendations,
     format_history_status,
+    format_intensity,
+    format_participant_preference,
+    format_scenario_result,
     format_severity,
     format_trace_action,
     format_view_mode,
@@ -60,6 +66,29 @@ class UIHelperTests(unittest.TestCase):
             UserPreferences("walking", True, 12.0, 30.0, 40, 25.0),
         )
 
+    def test_advanced_form_values_create_domain_preferences(self) -> None:
+        preferences = build_preferences(
+            preferred_activity_type="sports",
+            prefers_outdoor=False,
+            temperature_range=(10, 28),
+            max_precipitation_probability_percent=35,
+            max_wind_speed_kmh=20,
+            max_cost_level=CostLevel.LOW,
+            max_duration_minutes=75,
+            preferred_intensity=ActivityIntensity.MODERATE,
+            avoid_reservations=True,
+            suitable_for="friends",
+        )
+
+        self.assertEqual(preferences.max_cost_level, CostLevel.LOW)
+        self.assertEqual(preferences.max_duration_minutes, 75)
+        self.assertIs(
+            preferences.preferred_intensity,
+            ActivityIntensity.MODERATE,
+        )
+        self.assertTrue(preferences.avoid_reservations)
+        self.assertEqual(preferences.suitable_for, "friends")
+
     def test_invalid_temperature_range_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Minimum sıcaklık"):
             build_preferences(
@@ -90,6 +119,10 @@ class UIHelperTests(unittest.TestCase):
             "Kapalı pist yürüyüşü",
         )
         self.assertEqual(format_activity_type("creative"), "Yaratıcı")
+        self.assertEqual(format_cost_level(CostLevel.LOW), "Düşük")
+        self.assertEqual(format_intensity(ActivityIntensity.HIGH), "Yüksek")
+        self.assertEqual(format_intensity(None), "Fark etmez")
+        self.assertEqual(format_participant_preference("friends"), "Arkadaşla")
         self.assertEqual(format_condition("Partly cloudy"), "Parçalı bulutlu")
         self.assertEqual(format_severity("MODERATE"), "temkinli")
         self.assertEqual(
@@ -123,6 +156,15 @@ class UIHelperTests(unittest.TestCase):
             format_history_recommendations(recommendations),
             "Kapalı pist yürüyüşü",
         )
+
+    def test_evaluation_labels_are_readable(self) -> None:
+        self.assertEqual(format_evaluation_verdict("approved"), "Onaylandı")
+        self.assertEqual(
+            format_evaluation_verdict("no_recommendation"),
+            "Güvenli öneri yok",
+        )
+        self.assertEqual(format_scenario_result(True), "Geçti")
+        self.assertEqual(format_scenario_result(False), "Kaldı")
 
     def test_catalog_activity_names_have_user_facing_labels(self) -> None:
         activities = ActivityService().get_all()
@@ -162,6 +204,56 @@ class UIHelperTests(unittest.TestCase):
         self.assertIn("kapalı alan", explanation)
         self.assertIn(
             "Hava nedeniyle açık alan yerine kapalı alan öneriyorum.",
+            attention_items,
+        )
+
+    def test_user_reason_explains_weather_based_fallback(self) -> None:
+        recommendation = Recommendation(
+            activity=Activity(
+                "Indoor Track Running",
+                "running",
+                False,
+                -20,
+                50,
+                100,
+                100,
+            ),
+            score=90,
+            reasoning="",
+        )
+        preferences = UserPreferences(
+            preferred_activity_type="running",
+            prefers_outdoor=True,
+            min_temperature_celsius=10,
+            max_temperature_celsius=28,
+            max_precipitation_probability_percent=40,
+            max_wind_speed_kmh=25,
+        )
+        weather = WeatherData(
+            "Canakkale",
+            18,
+            55,
+            42,
+            "Windy",
+        )
+
+        reason = _format_user_recommendation_reason(
+            recommendation,
+            weather,
+            preferences,
+        )
+        attention_items = _build_attention_items(
+            recommendation,
+            weather,
+            preferences,
+        )
+
+        self.assertIn("açık alanda koşu", reason)
+        self.assertIn("yağış ihtimali %55", reason)
+        self.assertIn("rüzgâr 42 km/h", reason)
+        self.assertIn("kapalı pist koşusu", reason)
+        self.assertIn(
+            "Açık alanı yine de tercih edersen hava değişimini tekrar kontrol et.",
             attention_items,
         )
 

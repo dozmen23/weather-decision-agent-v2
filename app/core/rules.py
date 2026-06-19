@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 
 from app.models.activity import Activity
+from app.models.activity import ActivityIntensity, CostLevel
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData, WeatherSeverity
 
@@ -33,6 +34,8 @@ def evaluate_activity(
 
     if activity.is_outdoor != preferences.prefers_outdoor:
         warnings.append("Indoor/outdoor setting does not match the user's preference.")
+
+    _check_practical_preferences(preferences, activity, failed_rules)
 
     if activity.is_outdoor:
         _check_weather_severity(weather, failed_rules, warnings)
@@ -119,3 +122,71 @@ def _check_wind(
 
     if wind_speed > preferences.max_wind_speed_kmh:
         failed_rules.append("Wind speed exceeds the user's limit.")
+
+
+def _check_practical_preferences(
+    preferences: UserPreferences,
+    activity: Activity,
+    failed_rules: list[str],
+) -> None:
+    if _cost_rank(activity.cost_level) > _cost_rank(preferences.max_cost_level):
+        failed_rules.append("Activity cost exceeds the user's budget preference.")
+
+    if activity.duration_minutes > preferences.max_duration_minutes:
+        failed_rules.append("Activity duration exceeds the user's time preference.")
+
+    if preferences.avoid_reservations and activity.requires_reservation:
+        failed_rules.append("Activity requires a reservation.")
+
+    if not _is_suitable_for_preference(activity, preferences.suitable_for):
+        failed_rules.append("Activity is not suitable for the selected company.")
+
+    if preferences.preferred_intensity is None:
+        return
+
+    if _intensity_rank(activity.intensity) > _intensity_rank(
+        preferences.preferred_intensity
+    ):
+        failed_rules.append("Activity intensity exceeds the user's preference.")
+
+
+def _cost_rank(cost_level: CostLevel) -> int:
+    return {
+        CostLevel.FREE: 0,
+        CostLevel.LOW: 1,
+        CostLevel.MEDIUM: 2,
+        CostLevel.HIGH: 3,
+    }[cost_level]
+
+
+def _intensity_rank(intensity: ActivityIntensity) -> int:
+    return {
+        ActivityIntensity.LOW: 0,
+        ActivityIntensity.MODERATE: 1,
+        ActivityIntensity.HIGH: 2,
+    }[intensity]
+
+
+def _is_suitable_for_preference(
+    activity: Activity,
+    suitable_for: str | None,
+) -> bool:
+    if suitable_for is None:
+        return True
+
+    labels = set(activity.suitable_for)
+    accepted_labels = {
+        "solo": {"solo", "beginners", "students", "remote workers"},
+        "friends": {
+            "friends",
+            "groups",
+            "teams",
+            "couples",
+            "athletes",
+            "fitness enthusiasts",
+            "photographers",
+        },
+        "families": {"families", "seniors"},
+    }.get(suitable_for, {suitable_for})
+
+    return bool(labels & accepted_labels)

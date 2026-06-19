@@ -124,7 +124,7 @@ class ActivityGenerationService:
             schema_name="llm_activity_candidates",
             json_schema=ACTIVITY_GENERATION_SCHEMA,
         )
-        return _parse_generated_activities(payload, limit)
+        return _parse_generated_activities(payload, limit, preferences)
 
 
 def _build_generation_context(
@@ -153,6 +153,16 @@ def _build_generation_context(
                 preferences.max_precipitation_probability_percent
             ),
             "max_wind_speed_kmh": preferences.max_wind_speed_kmh,
+            "max_cost_level": preferences.max_cost_level.value,
+            "max_duration_minutes": preferences.max_duration_minutes,
+            "preferred_intensity": (
+                preferences.preferred_intensity.value
+                if preferences.preferred_intensity
+                else None
+            ),
+            "avoid_reservations": preferences.avoid_reservations,
+            "suitable_for": preferences.suitable_for,
+            "indoor_feedback_penalty": preferences.indoor_feedback_penalty,
         },
         "generation_constraints": [
             "Prefer indoor alternatives when outdoor weather is risky.",
@@ -165,6 +175,7 @@ def _build_generation_context(
 def _parse_generated_activities(
     payload: dict[str, Any],
     limit: int,
+    preferences: UserPreferences,
 ) -> list[Activity]:
     raw_activities = payload.get("activities")
     if not isinstance(raw_activities, list):
@@ -177,6 +188,7 @@ def _parse_generated_activities(
 
     for index, raw_activity in enumerate(raw_activities[:limit]):
         activity = _parse_generated_activity(raw_activity, index)
+        _validate_activity_relevance(activity, preferences, index)
         normalized_name = activity.name.casefold()
         if normalized_name in seen_names:
             raise LLMServiceError(
@@ -186,6 +198,22 @@ def _parse_generated_activities(
         activities.append(activity)
 
     return activities
+
+
+def _validate_activity_relevance(
+    activity: Activity,
+    preferences: UserPreferences,
+    index: int,
+) -> None:
+    preferred_type = preferences.preferred_activity_type.casefold()
+    activity_type_matches = activity.activity_type.casefold() == preferred_type
+    tags_match = preferred_type in {tag.casefold() for tag in activity.tags}
+
+    if not activity_type_matches and not tags_match:
+        raise LLMServiceError(
+            "LLM generated activity at index "
+            f"{index} is unrelated to the requested activity."
+        )
 
 
 def _parse_generated_activity(raw_activity: Any, index: int) -> Activity:

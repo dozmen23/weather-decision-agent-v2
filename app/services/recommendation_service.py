@@ -1,6 +1,6 @@
 """End-to-end orchestration for agent, evaluation, and optional LLM output."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 from app.agent.decision_agent import (
@@ -11,7 +11,7 @@ from app.agent.decision_agent import (
 from app.agent.planner import AgentAction
 from app.core.scoring import rank_activities
 from app.llm.activity_generation_service import ActivityGenerationService
-from app.llm.client import StructuredLLMClient
+from app.llm.client import LLMServiceError, StructuredLLMClient
 from app.llm.explanation_service import (
     ExplanationService,
     RecommendationExplanation,
@@ -20,18 +20,27 @@ from app.llm.judge_service import LLMJudgeReport, LLMJudgeService
 from app.models.activity import Activity
 from app.models.recommendation import Recommendation
 from app.models.recommendation_history import (
+    FeedbackValue,
     RecommendationHistoryItem,
     RecommendationHistoryRecord,
     new_history_record_id,
     utc_timestamp,
 )
 from app.models.user_preferences import UserPreferences
-from app.services.history_service import RecommendationHistoryRepository
+from app.services.history_service import (
+    RecommendationHistoryError,
+    RecommendationHistoryRepository,
+)
 from evaluation.evaluator import (
     DeterministicEvaluator,
     EvaluationReport,
     EvaluationVerdict,
 )
+
+
+INDOOR_FEEDBACK_PENALTY = 2.0
+PERSONALIZATION_HISTORY_LIMIT = 20
+PERSONALIZATION_NEGATIVE_THRESHOLD = 2
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,7 @@ class RecommendationWorkflowResult:
 
     agent_result: AgentResult
     deterministic_evaluation: EvaluationReport
+    preferences: UserPreferences | None = None
     explanation: RecommendationExplanation | None = None
     llm_judgment: LLMJudgeReport | None = None
     history_record: RecommendationHistoryRecord | None = None
@@ -78,6 +88,8 @@ class RecommendationService:
         target_date: date | None = None,
     ) -> RecommendationWorkflowResult:
         """Produce, verify, and optionally explain recommendations."""
+        preferences = self._personalize_preferences(preferences)
+
         if target_date is None:
             agent_result = self.agent.run(
                 city,
@@ -100,11 +112,24 @@ class RecommendationService:
             deterministic_report.verdict is EvaluationVerdict.NO_RECOMMENDATION
             and self.activity_generation_service is not None
         ):
-            generated_activities = self.activity_generation_service.generate(
-                agent_result.weather,
-                preferences,
-                limit=max(3, recommendation_limit),
-            )
+            try:
+                generated_activities = self.activity_generation_service.generate(
+                    agent_result.weather,
+                    preferences,
+                    limit=max(3, recommendation_limit),
+                )
+            except LLMServiceError:
+                workflow_result = RecommendationWorkflowResult(
+                    agent_result=agent_result,
+                    deterministic_evaluation=deterministic_report,
+                    preferences=preferences,
+                )
+                return self._store_history(
+                    workflow_result,
+                    city,
+                    preferences,
+                    target_date,
+                )
             agent_result = _build_generated_candidate_result(
                 original_result=agent_result,
                 generated_activities=generated_activities,
@@ -124,6 +149,7 @@ class RecommendationService:
             workflow_result = RecommendationWorkflowResult(
                 agent_result=agent_result,
                 deterministic_evaluation=deterministic_report,
+                preferences=preferences,
             )
             return self._store_history(
                 workflow_result,
@@ -146,6 +172,7 @@ class RecommendationService:
         workflow_result = RecommendationWorkflowResult(
             agent_result=agent_result,
             deterministic_evaluation=deterministic_report,
+            preferences=preferences,
             explanation=explanation,
             llm_judgment=llm_judgment,
         )
@@ -177,9 +204,48 @@ class RecommendationService:
         return RecommendationWorkflowResult(
             agent_result=workflow_result.agent_result,
             deterministic_evaluation=workflow_result.deterministic_evaluation,
+            preferences=workflow_result.preferences,
             explanation=workflow_result.explanation,
             llm_judgment=workflow_result.llm_judgment,
             history_record=history_record,
+        )
+
+    def _personalize_preferences(
+        self,
+        preferences: UserPreferences,
+    ) -> UserPreferences:
+        if self.history_repository is None:
+            return preferences
+
+        try:
+            recent_records = self.history_repository.list_recent(
+                limit=PERSONALIZATION_HISTORY_LIMIT
+            )
+        except RecommendationHistoryError:
+            return preferences
+
+        negative_indoor = 0
+        positive_indoor = 0
+        for record in recent_records:
+            if record.feedback is None:
+                continue
+            has_indoor_recommendation = any(
+                not item.is_outdoor for item in record.recommendations
+            )
+            if not has_indoor_recommendation:
+                continue
+
+            if record.feedback is FeedbackValue.NEGATIVE:
+                negative_indoor += 1
+            elif record.feedback is FeedbackValue.POSITIVE:
+                positive_indoor += 1
+
+        if negative_indoor - positive_indoor < PERSONALIZATION_NEGATIVE_THRESHOLD:
+            return preferences
+
+        return replace(
+            preferences,
+            indoor_feedback_penalty=INDOOR_FEEDBACK_PENALTY,
         )
 
 
@@ -314,6 +380,16 @@ def _build_history_record(
                 preferences.max_precipitation_probability_percent
             ),
             "max_wind_speed_kmh": preferences.max_wind_speed_kmh,
+            "max_cost_level": preferences.max_cost_level.value,
+            "max_duration_minutes": preferences.max_duration_minutes,
+            "preferred_intensity": (
+                preferences.preferred_intensity.value
+                if preferences.preferred_intensity
+                else None
+            ),
+            "avoid_reservations": preferences.avoid_reservations,
+            "suitable_for": preferences.suitable_for,
+            "indoor_feedback_penalty": preferences.indoor_feedback_penalty,
         },
         recommendations=[
             RecommendationHistoryItem(

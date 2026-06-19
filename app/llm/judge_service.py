@@ -130,6 +130,16 @@ def _build_judge_context(
         "preferences": {
             "preferred_activity_type": preferences.preferred_activity_type,
             "prefers_outdoor": preferences.prefers_outdoor,
+            "max_cost_level": preferences.max_cost_level.value,
+            "max_duration_minutes": preferences.max_duration_minutes,
+            "preferred_intensity": (
+                preferences.preferred_intensity.value
+                if preferences.preferred_intensity
+                else None
+            ),
+            "avoid_reservations": preferences.avoid_reservations,
+            "suitable_for": preferences.suitable_for,
+            "indoor_feedback_penalty": preferences.indoor_feedback_penalty,
         },
         "recommendations": [
             {

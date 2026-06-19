@@ -8,6 +8,11 @@
 - Expanded activity model with practical metadata such as purpose, intensity,
   duration, cost level, weather sensitivity, reservation needs, participant fit,
   and tags.
+- User preference filters for maximum cost, maximum duration, preferred
+  intensity, and avoiding reservation-based activities.
+- Participant-fit preference for solo, friends, and family contexts.
+- Natural filter controls for weather and practicality preferences, such as
+  low/medium/high wind or short/medium/long duration instead of raw numbers.
 - Smarter fallback flow that tries exact matches before related indoor
   alternatives and only then broadens to safer unrelated options.
 - Catalog coverage checks for priority activity categories, ensuring each one
@@ -22,25 +27,33 @@
 - Controlled LLM-assisted activity generation when the catalog cannot produce
   a safe recommendation. Generated activities are treated only as candidates
   and must pass deterministic rules, scoring, and evaluation before being shown.
+- LLM safety tests reject invented explanation activities, duplicate or missing
+  explanation details, unrelated generated candidates, unsafe generated
+  activities, invalid confidence values, and invalid approvals.
 - Lightweight JSONL recommendation history and feedback persistence connected
   to the Streamlit flow.
+- Lightweight personalization from feedback history. Repeated negative indoor
+  feedback applies only a small indoor practicality penalty.
 - User Mode and Developer Mode split in Streamlit. User Mode keeps the
   recommendation flow simple; Developer Mode exposes score breakdowns,
   evaluator checks, LLM review, raw weather data, and agent trace.
 - User-facing recommendation cards with plain-language "why this" and
   "watch out" sections.
+- Smart fallback explanations that mention the specific weather limits behind
+  an indoor alternative, such as rain, wind, temperature, or risk level.
 - Turkish User Mode labels for catalog activity names and activity types.
 - Split recommendation history so User Mode shows a simple recent activity
   list while Developer Mode keeps raw history/debug details.
+- Developer Mode evaluation dashboard for running the scenario suite and
+  inspecting pass/fail behavior from the interface.
 - Optional LLM explanation and second-review layer after deterministic
   decisions.
 
 ## Next Technical Milestones
 
-1. Keep expanding deterministic and LLM evaluation scenarios as new behavior is
+1. Add transport/accessibility preference filters.
+2. Keep expanding deterministic and LLM evaluation scenarios as new behavior is
    added.
-2. Add a Developer Mode evaluation dashboard for running scenario checks from
-   the interface.
 3. Prepare deployment only after the application workflow is complete.
 
 ## Activity Catalog Direction

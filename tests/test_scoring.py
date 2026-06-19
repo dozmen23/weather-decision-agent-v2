@@ -95,6 +95,23 @@ class ActivityScoringTests(unittest.TestCase):
         self.assertEqual(ranked[0].activity.name, "Park walk")
         self.assertGreater(ranked[0].total_score, ranked[1].total_score)
 
+    def test_indoor_feedback_penalty_slightly_reduces_practicality(self) -> None:
+        weather = WeatherData("Istanbul", 22.5, 5, 5, "Clear")
+        preferences = UserPreferences(
+            preferred_activity_type="walking",
+            prefers_outdoor=True,
+            min_temperature_celsius=15,
+            max_temperature_celsius=30,
+            max_precipitation_probability_percent=40,
+            max_wind_speed_kmh=25,
+            indoor_feedback_penalty=2.0,
+        )
+
+        result = score_activity(weather, preferences, self.museum)
+
+        self.assertTrue(result.is_eligible)
+        self.assertEqual(result.score_breakdown.practicality, 13.0)
+
 
 if __name__ == "__main__":
     unittest.main()
