@@ -125,6 +125,7 @@ def _build_explanation_context(
             ),
             "avoid_reservations": preferences.avoid_reservations,
             "suitable_for": preferences.suitable_for,
+            "max_transport_ease": preferences.max_transport_ease.value,
             "indoor_feedback_penalty": preferences.indoor_feedback_penalty,
         },
         "recommendations": [
@@ -146,6 +147,17 @@ def _build_explanation_context(
                 },
                 "deterministic_reasoning": recommendation.reasoning,
                 "warnings": recommendation.warnings,
+                "venues": [
+                    {
+                        "name": venue.name,
+                        "distance_km": venue.distance_km,
+                        "transport_ease": venue.transport_ease.value,
+                        "cost_level": venue.cost_level.value,
+                        "requires_reservation": venue.requires_reservation,
+                        "source": venue.source,
+                    }
+                    for venue in recommendation.venues
+                ],
             }
             for recommendation in result.recommendations
         ],

@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from app.agent.decision_agent import DecisionAgent
-from app.models.activity import Activity, ActivityIntensity, CostLevel
+from app.models.activity import (
+    Activity,
+    ActivityIntensity,
+    CostLevel,
+    TransportEase,
+)
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 from app.services.activity_service import ActivityService
@@ -285,6 +290,9 @@ def _parse_preferences(
                 str(raw["suitable_for"])
                 if raw.get("suitable_for") is not None
                 else None
+            ),
+            max_transport_ease=TransportEase(
+                str(raw.get("max_transport_ease", TransportEase.HARD.value))
             ),
         )
     except (KeyError, TypeError, ValueError) as exc:

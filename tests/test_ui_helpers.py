@@ -6,7 +6,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from app.agent.planner import AgentAction
-from app.models.activity import Activity, ActivityIntensity, CostLevel
+from app.models.activity import (
+    Activity,
+    ActivityIntensity,
+    CostLevel,
+    TransportEase,
+)
 from app.models.recommendation import Recommendation
 from app.models.recommendation_history import (
     FeedbackValue,
@@ -14,14 +19,20 @@ from app.models.recommendation_history import (
 )
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
+from app.models.venue import Venue
 from app.services.activity_service import ActivityService
 from app.services.history_service import RecommendationHistoryRepository
 from app.ui.streamlit_app import (
     _build_attention_items,
+    _extract_clicked_coordinates,
+    _format_coordinate_label,
     _format_user_recommendation_reason,
+    _venue_map_key,
     _select_user_explanation,
     build_recommendation_service,
     build_preferences,
+    calculate_map_center,
+    CoordinateWeatherTool,
     format_activity_name,
     format_activity_type,
     format_condition,
@@ -34,9 +45,15 @@ from app.ui.streamlit_app import (
     format_history_status,
     format_intensity,
     format_participant_preference,
+    format_reservation_requirement,
     format_scenario_result,
     format_severity,
     format_trace_action,
+    format_transport_ease,
+    format_venue_distance,
+    format_venue_distance_level,
+    format_venue_filter_status,
+    format_venue_transport_ease,
     format_view_mode,
     format_warning,
     get_forecast_date_bounds,
@@ -78,6 +95,7 @@ class UIHelperTests(unittest.TestCase):
             preferred_intensity=ActivityIntensity.MODERATE,
             avoid_reservations=True,
             suitable_for="friends",
+            max_transport_ease=TransportEase.EASY,
         )
 
         self.assertEqual(preferences.max_cost_level, CostLevel.LOW)
@@ -88,6 +106,7 @@ class UIHelperTests(unittest.TestCase):
         )
         self.assertTrue(preferences.avoid_reservations)
         self.assertEqual(preferences.suitable_for, "friends")
+        self.assertEqual(preferences.max_transport_ease, TransportEase.EASY)
 
     def test_invalid_temperature_range_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "Minimum sıcaklık"):
@@ -123,6 +142,13 @@ class UIHelperTests(unittest.TestCase):
         self.assertEqual(format_intensity(ActivityIntensity.HIGH), "Yüksek")
         self.assertEqual(format_intensity(None), "Fark etmez")
         self.assertEqual(format_participant_preference("friends"), "Arkadaşla")
+        self.assertEqual(format_transport_ease(TransportEase.EASY), "Kolay olsun")
+        self.assertEqual(
+            format_venue_transport_ease(TransportEase.EASY),
+            "kolay ulaşım",
+        )
+        self.assertEqual(format_venue_filter_status(True), "Geçti")
+        self.assertEqual(format_venue_filter_status(False), "Elendi")
         self.assertEqual(format_condition("Partly cloudy"), "Parçalı bulutlu")
         self.assertEqual(format_severity("MODERATE"), "temkinli")
         self.assertEqual(
@@ -269,6 +295,143 @@ class UIHelperTests(unittest.TestCase):
             )
 
             self.assertIs(service.history_repository, repository)
+
+    def test_coordinate_weather_tool_uses_coordinate_weather_service(self) -> None:
+        class StubCoordinateWeatherService:
+            def __init__(self) -> None:
+                self.current_calls = []
+                self.date_calls = []
+
+            def get_current_weather_for_coordinates(
+                self,
+                latitude,
+                longitude,
+                label,
+            ):
+                self.current_calls.append((latitude, longitude, label))
+                return WeatherData(label, 20, 10, 5, "Clear sky")
+
+            def get_weather_for_coordinates_and_date(
+                self,
+                latitude,
+                longitude,
+                target_date,
+                label,
+            ):
+                self.date_calls.append((latitude, longitude, target_date, label))
+                return WeatherData(
+                    label,
+                    20,
+                    10,
+                    5,
+                    "Clear sky",
+                    forecast_date=target_date,
+                )
+
+        service = StubCoordinateWeatherService()
+        tool = CoordinateWeatherTool(
+            41.0138,
+            28.9497,
+            "Harita konumu",
+            weather_service=service,
+        )
+
+        current_weather = tool.get_current_weather("ignored")
+        dated_weather = tool.get_weather_for_date(
+            "ignored",
+            date(2026, 6, 19),
+        )
+
+        self.assertEqual(current_weather.city, "Harita konumu")
+        self.assertEqual(dated_weather.forecast_date, date(2026, 6, 19))
+        self.assertEqual(service.current_calls[0][0], 41.0138)
+        self.assertEqual(service.date_calls[0][2], date(2026, 6, 19))
+
+    def test_map_click_payload_extracts_coordinates(self) -> None:
+        coordinates = _extract_clicked_coordinates(
+            {"last_clicked": {"lat": 40.9903, "lng": 29.029}}
+        )
+
+        self.assertEqual(coordinates, (40.9903, 29.029))
+
+    def test_invalid_map_click_payload_is_ignored(self) -> None:
+        self.assertIsNone(_extract_clicked_coordinates(None))
+        self.assertIsNone(_extract_clicked_coordinates({}))
+        self.assertIsNone(
+            _extract_clicked_coordinates(
+                {"last_clicked": {"lat": 120, "lng": 29.029}}
+            )
+        )
+
+    def test_coordinate_label_is_compact(self) -> None:
+        self.assertEqual(
+            _format_coordinate_label(40.9903123, 29.0290123),
+            "40.99031, 29.02901",
+        )
+
+    def test_venue_distance_labels_are_user_facing(self) -> None:
+        venue = Venue(
+            name="Demo AVM Yürüyüş Rotası",
+            activity_types=("walking",),
+            is_outdoor=False,
+            city="Istanbul",
+            latitude=41.0632,
+            longitude=29.0123,
+            distance_km=0.85,
+            transport_ease=TransportEase.EASY,
+            cost_level=CostLevel.FREE,
+            requires_reservation=False,
+            source="demo",
+        )
+
+        self.assertEqual(format_venue_distance(venue.distance_km), "850 m")
+        self.assertEqual(
+            format_venue_distance_level(venue.distance_km),
+            "çok yakın",
+        )
+        self.assertEqual(format_venue_distance(3.25), "3.2 km")
+        self.assertEqual(format_venue_distance_level(4.9), "yakın")
+        self.assertEqual(
+            format_venue_distance_level(8),
+            "orta uzaklıkta",
+        )
+        self.assertEqual(format_venue_distance_level(12), "uzak")
+        self.assertEqual(
+            format_reservation_requirement(venue.requires_reservation),
+            "rezervasyonsuz olabilir",
+        )
+        self.assertEqual(
+            format_reservation_requirement(True),
+            "rezervasyon gerekebilir",
+        )
+
+    def test_venue_map_helpers_are_stable(self) -> None:
+        venue = Venue(
+            name="Demo AVM Yürüyüş Rotası",
+            activity_types=("walking",),
+            is_outdoor=False,
+            city="Istanbul",
+            latitude=41.0632,
+            longitude=29.0123,
+            distance_km=0.85,
+            transport_ease=TransportEase.EASY,
+            cost_level=CostLevel.FREE,
+            requires_reservation=False,
+            source="demo",
+        )
+
+        center = calculate_map_center(
+            [(41.0, 29.0), (42.0, 30.0)],
+        )
+        self.assertEqual(center, (41.5, 29.5))
+        self.assertEqual(
+            calculate_map_center([]),
+            (41.0138, 28.9497),
+        )
+        self.assertNotEqual(
+            _venue_map_key([venue], "recommendation_1"),
+            _venue_map_key([venue], "recommendation_2"),
+        )
 
     def test_forecast_date_bounds_cover_seven_days(self) -> None:
         first_day, last_day = get_forecast_date_bounds(

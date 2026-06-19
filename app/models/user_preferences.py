@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from app.models.activity import ActivityIntensity, CostLevel
+from app.models.activity import ActivityIntensity, CostLevel, TransportEase
 
 
 @dataclass
@@ -20,4 +20,5 @@ class UserPreferences:
     preferred_intensity: ActivityIntensity | None = None
     avoid_reservations: bool = False
     suitable_for: str | None = None
+    max_transport_ease: TransportEase = TransportEase.HARD
     indoor_feedback_penalty: float = 0.0

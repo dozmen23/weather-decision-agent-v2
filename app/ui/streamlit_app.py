@@ -3,9 +3,19 @@
 from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date, timedelta
+from typing import Any
 
 import streamlit as st
 
+try:
+    import folium
+    from streamlit_folium import st_folium
+except ImportError:  # pragma: no cover - exercised by environments only.
+    folium = None
+    st_folium = None
+
+from app.agent.decision_agent import WeatherTool
+from app.agent.decision_agent import DecisionAgent
 from app.agent.planner import AgentAction
 from app.config import ConfigurationError
 from app.llm.client import LLMServiceError
@@ -13,7 +23,7 @@ from app.llm.factory import (
     create_llm_client,
     load_llm_settings,
 )
-from app.models.activity import ActivityIntensity, CostLevel
+from app.models.activity import ActivityIntensity, CostLevel, TransportEase
 from app.models.recommendation_history import (
     FeedbackValue,
     RecommendationHistoryItem,
@@ -71,6 +81,11 @@ TURKISH_MONTH_NAMES = (
 
 USER_MODE = "user"
 DEVELOPER_MODE = "developer"
+LOCATION_MODE_CITY = "Şehir"
+LOCATION_MODE_COORDINATES = "Harita"
+DEFAULT_MAP_LATITUDE = 41.0138
+DEFAULT_MAP_LONGITUDE = 28.9497
+DEFAULT_MAP_ZOOM = 11
 
 ACTIVITY_NAME_LABELS = {
     "Park Walk": "Park yürüyüşü",
@@ -214,6 +229,18 @@ PARTICIPANT_LABELS = {
     "families": "Aileyle",
 }
 
+TRANSPORT_EASE_LABELS = {
+    TransportEase.EASY: "Kolay olsun",
+    TransportEase.MODERATE: "Orta olabilir",
+    TransportEase.HARD: "Fark etmez",
+}
+
+VENUE_TRANSPORT_LABELS = {
+    TransportEase.EASY: "kolay ulaşım",
+    TransportEase.MODERATE: "orta ulaşım",
+    TransportEase.HARD: "daha zahmetli ulaşım",
+}
+
 
 def main() -> None:
     """Render the complete Streamlit application."""
@@ -256,6 +283,7 @@ def main() -> None:
         service = build_recommendation_service(
             form_values["use_llm"],
             history_repository=history_repository,
+            weather_tool=form_values["weather_tool"],
         )
 
         with st.spinner(
@@ -266,6 +294,7 @@ def main() -> None:
                 preferences=preferences,
                 recommendation_limit=form_values["recommendation_limit"],
                 target_date=form_values["target_date"],
+                venue_origin=form_values["venue_origin"],
             )
     except (
         ActivityCatalogError,
@@ -313,6 +342,7 @@ def build_preferences(
     preferred_intensity: ActivityIntensity | None = None,
     avoid_reservations: bool = False,
     suitable_for: str | None = None,
+    max_transport_ease: TransportEase = TransportEase.HARD,
 ) -> UserPreferences:
     """Convert validated UI values into the domain preference model."""
     minimum_temperature, maximum_temperature = temperature_range
@@ -335,19 +365,27 @@ def build_preferences(
         preferred_intensity=preferred_intensity,
         avoid_reservations=avoid_reservations,
         suitable_for=suitable_for,
+        max_transport_ease=max_transport_ease,
     )
 
 
 def build_recommendation_service(
     use_llm: bool,
     history_repository: RecommendationHistoryRepository | None = None,
+    weather_tool: WeatherTool | None = None,
 ) -> RecommendationService:
     """Create a workflow service with optional configured LLM enrichment."""
+    agent = DecisionAgent(weather_tool=weather_tool) if weather_tool else None
+
     if not use_llm:
-        return RecommendationService(history_repository=history_repository)
+        return RecommendationService(
+            agent=agent,
+            history_repository=history_repository,
+        )
 
     settings = load_llm_settings()
     return RecommendationService(
+        agent=agent,
         llm_client=create_llm_client(settings),
         history_repository=history_repository,
     )
@@ -370,6 +408,54 @@ def get_forecast_date_bounds(
 def get_sidebar_forecast(city: str):
     """Return a cached seven-day forecast for sidebar day selection."""
     return WeatherService().get_daily_forecast(city, forecast_days=7)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_sidebar_forecast_for_coordinates(
+    latitude: float,
+    longitude: float,
+    label: str,
+):
+    """Return a cached forecast for direct coordinate day selection."""
+    return WeatherService().get_daily_forecast_for_coordinates(
+        latitude,
+        longitude,
+        label=label,
+        forecast_days=7,
+    )
+
+
+class CoordinateWeatherTool:
+    """Weather tool adapter for map/coordinate-selected locations."""
+
+    def __init__(
+        self,
+        latitude: float,
+        longitude: float,
+        label: str,
+        weather_service: WeatherService | None = None,
+    ) -> None:
+        self.latitude = latitude
+        self.longitude = longitude
+        self.label = label
+        self.weather_service = weather_service or WeatherService()
+
+    def get_current_weather(self, _: str):
+        """Return current weather for the selected coordinates."""
+        return self.weather_service.get_current_weather_for_coordinates(
+            self.latitude,
+            self.longitude,
+            label=self.label,
+        )
+
+    def get_weather_for_date(self, _: str, target_date: date):
+        """Return forecast weather for the selected coordinates."""
+        return self.weather_service.get_weather_for_coordinates_and_date(
+            self.latitude,
+            self.longitude,
+            target_date,
+            label=self.label,
+        )
 
 
 def format_forecast_date(forecast_date: date) -> str:
@@ -411,6 +497,35 @@ def format_forecast_card_label(weather, today: date | None = None) -> str:
         f"%{weather.precipitation_probability_percent} yağış · "
         f"{format_severity(weather.severity_level.value)}"
     )
+
+
+def _extract_clicked_coordinates(
+    map_output: dict[str, Any] | None,
+) -> tuple[float, float] | None:
+    """Return latitude/longitude from a Streamlit Folium click payload."""
+    if not map_output:
+        return None
+
+    click_payload = map_output.get("last_clicked")
+    if not isinstance(click_payload, dict):
+        return None
+
+    latitude = click_payload.get("lat")
+    longitude = click_payload.get("lng")
+    if latitude is None or longitude is None:
+        return None
+
+    latitude = float(latitude)
+    longitude = float(longitude)
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+
+    return latitude, longitude
+
+
+def _format_coordinate_label(latitude: float, longitude: float) -> str:
+    """Return a compact user-facing coordinate label."""
+    return f"{latitude:.5f}, {longitude:.5f}"
 
 
 def format_view_mode(mode: str) -> str:
@@ -461,6 +576,59 @@ def format_intensity(intensity: ActivityIntensity | None) -> str:
 def format_participant_preference(suitable_for: str | None) -> str:
     """Return a Turkish participant preference label."""
     return PARTICIPANT_LABELS.get(suitable_for, suitable_for or "Fark etmez")
+
+
+def format_transport_ease(transport_ease: TransportEase) -> str:
+    """Return a Turkish transport ease preference label."""
+    return TRANSPORT_EASE_LABELS.get(transport_ease, transport_ease.value)
+
+
+def format_venue_transport_ease(transport_ease: TransportEase) -> str:
+    """Return a user-facing venue transport label."""
+    return VENUE_TRANSPORT_LABELS.get(transport_ease, transport_ease.value)
+
+
+def format_venue_distance(distance_km: float) -> str:
+    """Return a compact user-facing venue distance label."""
+    if distance_km < 1:
+        return f"{round(distance_km * 1000):.0f} m"
+    return f"{distance_km:.1f} km"
+
+
+def format_venue_distance_level(distance_km: float) -> str:
+    """Return a simple proximity label for a venue distance."""
+    if distance_km <= 1:
+        return "çok yakın"
+    if distance_km <= 5:
+        return "yakın"
+    if distance_km <= 10:
+        return "orta uzaklıkta"
+    return "uzak"
+
+
+def format_reservation_requirement(requires_reservation: bool) -> str:
+    """Return a simple reservation label for a venue."""
+    if requires_reservation:
+        return "rezervasyon gerekebilir"
+    return "rezervasyonsuz olabilir"
+
+
+def format_venue_filter_status(passed: bool) -> str:
+    """Return a readable venue filter trace status."""
+    return "Geçti" if passed else "Elendi"
+
+
+def calculate_map_center(
+    coordinates: list[tuple[float, float]],
+) -> tuple[float, float]:
+    """Return the center point for a list of latitude/longitude pairs."""
+    if not coordinates:
+        return DEFAULT_MAP_LATITUDE, DEFAULT_MAP_LONGITUDE
+
+    return (
+        sum(latitude for latitude, _ in coordinates) / len(coordinates),
+        sum(longitude for _, longitude in coordinates) / len(coordinates),
+    )
 
 
 def format_feedback_value(feedback: FeedbackValue | None) -> str:
@@ -545,8 +713,35 @@ def _render_preference_form(
 ) -> dict[str, object] | None:
     with st.sidebar:
         st.header("Tercihler")
-        city = st.text_input("Şehir", value="Istanbul")
-        target_date = _render_forecast_selector(city)
+        location_mode = st.radio(
+            "Konum",
+            options=[LOCATION_MODE_CITY, LOCATION_MODE_COORDINATES],
+            horizontal=True,
+        )
+        st.session_state["active_location_mode"] = location_mode
+        if location_mode == LOCATION_MODE_CITY:
+            city = st.text_input("Şehir", value="Istanbul")
+            location_label = city.strip()
+            weather_tool = None
+            venue_origin = None
+            target_date = _render_city_forecast_selector(city)
+        else:
+            location_label = st.text_input(
+                "Konum adı",
+                value="Seçilen konum",
+            )
+            latitude, longitude = _render_location_map_picker()
+            weather_tool = CoordinateWeatherTool(
+                latitude,
+                longitude,
+                location_label.strip() or "Seçilen konum",
+            )
+            venue_origin = (latitude, longitude)
+            target_date = _render_coordinate_forecast_selector(
+                latitude,
+                longitude,
+                location_label.strip() or "Seçilen konum",
+            )
 
         with st.form("recommendation_form"):
             preferred_activity_type = st.selectbox(
@@ -608,6 +803,16 @@ def _render_preference_form(
                     index=0,
                     format_func=format_participant_preference,
                 )
+                max_transport_ease = st.selectbox(
+                    "Ulaşım kolaylığı",
+                    options=[
+                        TransportEase.EASY,
+                        TransportEase.MODERATE,
+                        TransportEase.HARD,
+                    ],
+                    index=2,
+                    format_func=format_transport_ease,
+                )
             recommendation_limit = st.slider(
                 "Öneri sayısı",
                 min_value=1,
@@ -632,14 +837,16 @@ def _render_preference_form(
     if not submitted:
         return None
 
-    if len(city.strip()) < 2:
+    if len(location_label.strip()) < 2:
         raise ValueError("Şehir adı en az iki karakter olmalıdır.")
 
     return {
-        "city": city.strip(),
+        "city": location_label.strip(),
         "target_date": target_date,
         "recommendation_limit": recommendation_limit,
         "use_llm": use_llm,
+        "weather_tool": weather_tool,
+        "venue_origin": venue_origin,
         "preferences": {
             "preferred_activity_type": preferred_activity_type,
             "prefers_outdoor": setting == "Açık alan",
@@ -653,11 +860,130 @@ def _render_preference_form(
             "preferred_intensity": preferred_intensity,
             "avoid_reservations": avoid_reservations,
             "suitable_for": suitable_for,
+            "max_transport_ease": max_transport_ease,
         },
     }
 
 
-def _render_forecast_selector(city: str) -> date:
+def _render_location_map_picker() -> tuple[float, float]:
+    latitude = float(
+        st.session_state.get("selected_map_latitude", DEFAULT_MAP_LATITUDE)
+    )
+    longitude = float(
+        st.session_state.get("selected_map_longitude", DEFAULT_MAP_LONGITUDE)
+    )
+
+    with st.container(border=True):
+        st.markdown("**Seçilen nokta**")
+        st.caption(_format_coordinate_label(latitude, longitude))
+        st.button(
+            "Haritada seç",
+            key="open_location_picker_dialog",
+            use_container_width=True,
+            on_click=_open_location_picker_dialog,
+            type="secondary",
+        )
+
+    if st.session_state.get("show_location_picker_dialog"):
+        _render_location_picker_dialog()
+
+    if folium is None or st_folium is None:
+        st.info(
+            "Gerçek harita seçimi için streamlit-folium kurulmalı. "
+            "Şimdilik koordinatı elle girebilirsin."
+        )
+
+    with st.expander(
+        "Koordinatı elle düzelt",
+        expanded=folium is None or st_folium is None,
+    ):
+        latitude = st.number_input(
+            "Enlem",
+            min_value=-90.0,
+            max_value=90.0,
+            value=latitude,
+            format="%.6f",
+        )
+        longitude = st.number_input(
+            "Boylam",
+            min_value=-180.0,
+            max_value=180.0,
+            value=longitude,
+            format="%.6f",
+        )
+
+    st.session_state["selected_map_latitude"] = latitude
+    st.session_state["selected_map_longitude"] = longitude
+    return latitude, longitude
+
+
+def _open_location_picker_dialog() -> None:
+    st.session_state["show_location_picker_dialog"] = True
+
+
+@st.dialog("Haritada konum seç", width="large")
+def _render_location_picker_dialog() -> None:
+    latitude = float(
+        st.session_state.get("selected_map_latitude", DEFAULT_MAP_LATITUDE)
+    )
+    longitude = float(
+        st.session_state.get("selected_map_longitude", DEFAULT_MAP_LONGITUDE)
+    )
+
+    st.markdown("**Haritada istediğin noktaya tıkla.**")
+    st.caption(
+        "Seçim yapılınca pencere kapanır ve hava tahmini bu noktadan alınır."
+    )
+
+    if folium is None or st_folium is None:
+        st.warning(
+            "Harita seçimi için streamlit-folium kurulmalı. "
+            "Koordinatı sidebar'dan elle girebilirsin."
+        )
+        if st.button("Kapat", use_container_width=True):
+            st.session_state["show_location_picker_dialog"] = False
+            st.rerun()
+        return
+
+    map_object = folium.Map(
+        location=[latitude, longitude],
+        zoom_start=DEFAULT_MAP_ZOOM,
+        tiles="CartoDB positron",
+        control_scale=True,
+    )
+    folium.CircleMarker(
+        [latitude, longitude],
+        radius=8,
+        color="#ff4b4b",
+        fill=True,
+        fill_color="#ff4b4b",
+        fill_opacity=0.9,
+        tooltip="Şu an seçili nokta",
+    ).add_to(map_object)
+    folium.LatLngPopup().add_to(map_object)
+
+    map_output = st_folium(
+        map_object,
+        height=560,
+        use_container_width=True,
+        key="location_picker_dialog_map",
+    )
+    clicked_coordinates = _extract_clicked_coordinates(map_output)
+    if clicked_coordinates is not None:
+        latitude, longitude = clicked_coordinates
+        st.session_state["selected_map_latitude"] = latitude
+        st.session_state["selected_map_longitude"] = longitude
+        st.session_state["show_location_picker_dialog"] = False
+        st.toast("Konum seçildi.")
+        st.rerun()
+
+    st.caption(f"Şu an seçili: {_format_coordinate_label(latitude, longitude)}")
+    if st.button("Vazgeç", use_container_width=True):
+        st.session_state["show_location_picker_dialog"] = False
+        st.rerun()
+
+
+def _render_city_forecast_selector(city: str) -> date:
     normalized_city = city.strip()
     if len(normalized_city) < 2:
         first_forecast_date, last_forecast_date = get_forecast_date_bounds()
@@ -721,6 +1047,67 @@ def _render_forecast_selector(city: str) -> date:
     return selected_date
 
 
+def _render_coordinate_forecast_selector(
+    latitude: float,
+    longitude: float,
+    label: str,
+) -> date:
+    try:
+        forecasts = get_sidebar_forecast_for_coordinates(
+            latitude,
+            longitude,
+            label,
+        )
+    except WeatherServiceError:
+        st.info("Gün kartları şu an alınamadı; tarihi elle seçebilirsin.")
+        first_forecast_date, last_forecast_date = get_forecast_date_bounds()
+        return st.date_input(
+            "Planlanan gün",
+            value=first_forecast_date,
+            min_value=first_forecast_date,
+            max_value=last_forecast_date,
+            format="DD/MM/YYYY",
+        )
+
+    forecast_dates = [
+        weather.forecast_date
+        for weather in forecasts
+        if weather.forecast_date is not None
+    ]
+    if not forecast_dates:
+        first_forecast_date, last_forecast_date = get_forecast_date_bounds()
+        return st.date_input(
+            "Planlanan gün",
+            value=first_forecast_date,
+            min_value=first_forecast_date,
+            max_value=last_forecast_date,
+            format="DD/MM/YYYY",
+        )
+
+    selected_date = st.session_state.get("selected_coordinate_forecast_date")
+    if selected_date not in forecast_dates:
+        selected_date = forecast_dates[0]
+
+    st.caption("Planlanacak gün")
+    columns = st.columns(2)
+    for index, weather in enumerate(forecasts):
+        if weather.forecast_date is None:
+            continue
+
+        is_selected = weather.forecast_date == selected_date
+        clicked = columns[index % 2].button(
+            format_forecast_card_label(weather),
+            key=f"coordinate_forecast_day_{weather.forecast_date.isoformat()}",
+            type="primary" if is_selected else "secondary",
+            use_container_width=True,
+        )
+        if clicked:
+            selected_date = weather.forecast_date
+
+    st.session_state["selected_coordinate_forecast_date"] = selected_date
+    return selected_date
+
+
 def _render_empty_state(developer_mode: bool) -> None:
     st.info(
         "Soldaki tercihleri düzenleyip **Öneri üret** düğmesine basarak "
@@ -730,7 +1117,7 @@ def _render_empty_state(developer_mode: bool) -> None:
     if developer_mode:
         columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
         columns[1].metric("Evaluation kontrolleri", "6")
-        columns[2].metric("Otomatik test", "102 başarılı")
+        columns[2].metric("Otomatik test", "117 başarılı")
     else:
         columns[0].metric("Görünüm", "Sade")
         columns[1].metric("Geçmiş", "Aktif")
@@ -935,6 +1322,133 @@ def _render_recommendation_card(
 
         for warning in recommendation.warnings:
             st.warning(format_warning(warning))
+
+        if recommendation.venues:
+            _render_venue_candidates(
+                recommendation.venues,
+                developer_mode,
+                key_prefix=f"recommendation_{index}",
+            )
+        if developer_mode and recommendation.venue_filter_trace:
+            _render_venue_filter_trace(recommendation.venue_filter_trace)
+
+
+def _render_venue_candidates(
+    venues,
+    developer_mode: bool,
+    key_prefix: str,
+) -> None:
+    st.markdown("**Mekan adayları**")
+    for venue in venues:
+        st.markdown(f"**{venue.name}**")
+        st.caption(
+            f"{format_venue_distance_level(venue.distance_km)} · "
+            f"sana yaklaşık {format_venue_distance(venue.distance_km)} · "
+            f"{format_venue_transport_ease(venue.transport_ease)}"
+        )
+        st.caption(
+            f"{format_cost_level(venue.cost_level)} bütçe · "
+            f"{format_reservation_requirement(venue.requires_reservation)}"
+        )
+        if developer_mode:
+            st.caption(
+                f"source: {venue.source} | "
+                f"lat/lon: {venue.latitude:.4f}, {venue.longitude:.4f}"
+            )
+    with st.expander("Mekanları haritada gör", expanded=False):
+        _render_venue_map(venues, key_prefix)
+
+
+def _render_venue_map(venues, key_prefix: str) -> None:
+    if folium is None or st_folium is None:
+        st.info("Mekan haritası için streamlit-folium kurulmalı.")
+        return
+
+    origin = _get_selected_map_origin()
+    coordinates = [(venue.latitude, venue.longitude) for venue in venues]
+    if origin is not None:
+        coordinates.append(origin)
+    center_latitude, center_longitude = calculate_map_center(coordinates)
+
+    map_object = folium.Map(
+        location=[center_latitude, center_longitude],
+        zoom_start=12,
+        tiles="CartoDB positron",
+        control_scale=True,
+    )
+
+    if origin is not None:
+        folium.CircleMarker(
+            [origin[0], origin[1]],
+            radius=8,
+            color="#2563eb",
+            fill=True,
+            fill_color="#2563eb",
+            fill_opacity=0.9,
+            tooltip="Seçtiğin nokta",
+        ).add_to(map_object)
+
+    for index, venue in enumerate(venues, start=1):
+        folium.Marker(
+            [venue.latitude, venue.longitude],
+            tooltip=f"{index}. {venue.name}",
+            popup=(
+                f"{venue.name}<br>"
+                f"{format_venue_distance_level(venue.distance_km)} · "
+                f"{format_venue_distance(venue.distance_km)}"
+            ),
+            icon=folium.Icon(color="orange", icon="info-sign"),
+        ).add_to(map_object)
+
+    if len(coordinates) > 1:
+        latitudes = [latitude for latitude, _ in coordinates]
+        longitudes = [longitude for _, longitude in coordinates]
+        map_object.fit_bounds(
+            [
+                [min(latitudes), min(longitudes)],
+                [max(latitudes), max(longitudes)],
+            ]
+        )
+
+    st_folium(
+        map_object,
+        height=260,
+        use_container_width=True,
+        key=_venue_map_key(venues, key_prefix),
+    )
+
+
+def _get_selected_map_origin() -> tuple[float, float] | None:
+    if st.session_state.get("active_location_mode") != LOCATION_MODE_COORDINATES:
+        return None
+
+    latitude = st.session_state.get("selected_map_latitude")
+    longitude = st.session_state.get("selected_map_longitude")
+    if latitude is None or longitude is None:
+        return None
+
+    latitude = float(latitude)
+    longitude = float(longitude)
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        return None
+    return latitude, longitude
+
+
+def _venue_map_key(venues, key_prefix: str) -> str:
+    venue_signature = "|".join(venue.name for venue in venues)
+    signature_value = sum(ord(character) for character in venue_signature)
+    return f"venue_map_{key_prefix}_{signature_value}"
+
+
+def _render_venue_filter_trace(venue_filter_trace) -> None:
+    with st.expander("Mekan filtre izi", expanded=False):
+        for trace in venue_filter_trace:
+            status = format_venue_filter_status(trace.passed)
+            st.markdown(f"**{status} · {trace.venue_name}**")
+            st.caption(
+                f"mesafe: {format_venue_distance(trace.distance_km)} | "
+                f"neden: {'; '.join(trace.reasons)}"
+            )
 
 
 def _render_user_recommendation_explanation(
@@ -1446,6 +1960,17 @@ def _render_styles() -> None:
         }
         .score-badge.soft strong {
             font-size: 1.1rem;
+        }
+        div[data-testid="stDialog"] div[role="dialog"] {
+            max-width: min(1120px, 94vw);
+        }
+        div[data-testid="stDialog"] iframe {
+            border: 0;
+            border-radius: 18px;
+            box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
+        }
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
+            border-radius: 14px;
         }
         </style>
         """,

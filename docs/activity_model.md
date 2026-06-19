@@ -21,6 +21,9 @@ These values remain authoritative for deterministic eligibility checks.
 - `cost_level`: `free`, `low`, `medium`, or `high`.
 - `weather_sensitivity`: `none`, `low`, `moderate`, or `high`.
 - `requires_reservation`: Whether advance planning is normally required.
+- `transport_ease`: `easy`, `moderate`, or `hard` activity-level access
+  estimate. It is intentionally venue-agnostic for now and can later be backed
+  by map or real venue data.
 - `suitable_for`: Supported participant profiles.
 - `tags`: Search and similarity labels.
 
@@ -30,8 +33,9 @@ These values remain authoritative for deterministic eligibility checks.
   wind limits already express those constraints more precisely.
 - Metadata does not override hard weather rules.
 - Tags and purpose will support smarter fallback matching in a later step.
-- User preference fields for cost, duration, and intensity will be introduced
-  only when the corresponding scoring behavior is implemented.
+- User preference fields for cost, duration, intensity, participant fit,
+  reservation avoidance, and transport ease are deterministic filters or small
+  scoring signals.
 
 ## Similarity-Based Fallback
 

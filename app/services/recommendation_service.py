@@ -31,6 +31,7 @@ from app.services.history_service import (
     RecommendationHistoryError,
     RecommendationHistoryRepository,
 )
+from app.services.venue_service import VenueCatalogError, VenueService
 from evaluation.evaluator import (
     DeterministicEvaluator,
     EvaluationReport,
@@ -64,10 +65,12 @@ class RecommendationService:
         evaluator: DeterministicEvaluator | None = None,
         llm_client: StructuredLLMClient | None = None,
         history_repository: RecommendationHistoryRepository | None = None,
+        venue_service: VenueService | None = None,
     ) -> None:
         self.agent = agent or DecisionAgent()
         self.evaluator = evaluator or DeterministicEvaluator()
         self.history_repository = history_repository
+        self.venue_service = venue_service or VenueService()
         self.explanation_service = (
             ExplanationService(llm_client) if llm_client is not None else None
         )
@@ -86,6 +89,7 @@ class RecommendationService:
         preferences: UserPreferences,
         recommendation_limit: int = 3,
         target_date: date | None = None,
+        venue_origin: tuple[float, float] | None = None,
     ) -> RecommendationWorkflowResult:
         """Produce, verify, and optionally explain recommendations."""
         preferences = self._personalize_preferences(preferences)
@@ -106,6 +110,11 @@ class RecommendationService:
         deterministic_report = self.evaluator.evaluate(
             agent_result,
             preferences,
+        )
+        agent_result = self._attach_venue_candidates(
+            agent_result,
+            preferences,
+            venue_origin=venue_origin,
         )
 
         if (
@@ -139,6 +148,11 @@ class RecommendationService:
             deterministic_report = self.evaluator.evaluate(
                 agent_result,
                 preferences,
+            )
+            agent_result = self._attach_venue_candidates(
+                agent_result,
+                preferences,
+                venue_origin=venue_origin,
             )
 
         if (
@@ -247,6 +261,40 @@ class RecommendationService:
             preferences,
             indoor_feedback_penalty=INDOOR_FEEDBACK_PENALTY,
         )
+
+    def _attach_venue_candidates(
+        self,
+        agent_result: AgentResult,
+        preferences: UserPreferences,
+        venue_origin: tuple[float, float] | None = None,
+    ) -> AgentResult:
+        if not agent_result.recommendations:
+            return agent_result
+
+        origin_latitude = venue_origin[0] if venue_origin else None
+        origin_longitude = venue_origin[1] if venue_origin else None
+        try:
+            recommendations = []
+            for recommendation in agent_result.recommendations:
+                venues, venue_trace = self.venue_service.find_candidates_with_trace(
+                    activity_type=recommendation.activity.activity_type,
+                    is_outdoor=recommendation.activity.is_outdoor,
+                    preferences=preferences,
+                    origin_latitude=origin_latitude,
+                    origin_longitude=origin_longitude,
+                    limit=2,
+                )
+                recommendations.append(
+                    replace(
+                        recommendation,
+                        venues=venues,
+                        venue_filter_trace=venue_trace,
+                    ),
+                )
+        except VenueCatalogError:
+            return agent_result
+
+        return replace(agent_result, recommendations=recommendations)
 
 
 def _build_generated_candidate_result(
@@ -389,6 +437,7 @@ def _build_history_record(
             ),
             "avoid_reservations": preferences.avoid_reservations,
             "suitable_for": preferences.suitable_for,
+            "max_transport_ease": preferences.max_transport_ease.value,
             "indoor_feedback_penalty": preferences.indoor_feedback_penalty,
         },
         recommendations=[

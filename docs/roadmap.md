@@ -4,6 +4,8 @@
 
 - Seven-day weather forecast retrieval and normalization.
 - Agent evaluation for a user-selected forecast date.
+- Coordinate-based weather retrieval foundation for future map selection.
+- Streamlit location mode for city input or coordinate-based map preview.
 - Card-style seven-day forecast selector in the Streamlit sidebar.
 - Expanded activity model with practical metadata such as purpose, intensity,
   duration, cost level, weather sensitivity, reservation needs, participant fit,
@@ -11,6 +13,10 @@
 - User preference filters for maximum cost, maximum duration, preferred
   intensity, and avoiding reservation-based activities.
 - Participant-fit preference for solo, friends, and family contexts.
+- Transport ease preference at activity level, ready to be backed by map or
+  venue data later.
+- Location and venue integration plan for future map and real venue support.
+- Trusted demo venue data source and deterministic venue candidate filtering.
 - Natural filter controls for weather and practicality preferences, such as
   low/medium/high wind or short/medium/long duration instead of raw numbers.
 - Smarter fallback flow that tries exact matches before related indoor
@@ -51,10 +57,12 @@
 
 ## Next Technical Milestones
 
-1. Add transport/accessibility preference filters.
-2. Keep expanding deterministic and LLM evaluation scenarios as new behavior is
+1. Design the map/location and real venue data flow without letting the LLM
+   choose unsafe venues directly.
+2. Replace the demo venue source with an external places provider adapter.
+3. Keep expanding deterministic and LLM evaluation scenarios as new behavior is
    added.
-3. Prepare deployment only after the application workflow is complete.
+4. Prepare deployment only after the application workflow is complete.
 
 ## Activity Catalog Direction
 

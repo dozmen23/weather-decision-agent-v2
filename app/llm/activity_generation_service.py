@@ -8,6 +8,7 @@ from app.models.activity import (
     Activity,
     ActivityIntensity,
     CostLevel,
+    TransportEase,
     WeatherSensitivity,
 )
 from app.models.user_preferences import UserPreferences
@@ -56,6 +57,10 @@ ACTIVITY_GENERATION_SCHEMA: dict[str, Any] = {
                         "enum": ["none", "low", "moderate", "high"],
                     },
                     "requires_reservation": {"type": "boolean"},
+                    "transport_ease": {
+                        "type": "string",
+                        "enum": ["easy", "moderate", "hard"],
+                    },
                     "suitable_for": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -162,6 +167,7 @@ def _build_generation_context(
             ),
             "avoid_reservations": preferences.avoid_reservations,
             "suitable_for": preferences.suitable_for,
+            "max_transport_ease": preferences.max_transport_ease.value,
             "indoor_feedback_penalty": preferences.indoor_feedback_penalty,
         },
         "generation_constraints": [
@@ -266,6 +272,12 @@ def _parse_generated_activity(raw_activity: Any, index: int) -> Activity:
                 "requires_reservation",
                 index,
             ),
+            transport_ease=_parse_enum(
+                TransportEase,
+                raw_activity.get("transport_ease", "moderate"),
+                "transport_ease",
+                index,
+            ),
             suitable_for=_parse_text_tuple(
                 raw_activity["suitable_for"],
                 "suitable_for",
@@ -299,11 +311,14 @@ def _require_bool(value: Any, field_name: str, index: int) -> bool:
 
 
 def _parse_enum(
-    enum_type: type[ActivityIntensity] | type[CostLevel] | type[WeatherSensitivity],
+    enum_type: type[ActivityIntensity]
+    | type[CostLevel]
+    | type[TransportEase]
+    | type[WeatherSensitivity],
     value: Any,
     field_name: str,
     index: int,
-) -> ActivityIntensity | CostLevel | WeatherSensitivity:
+) -> ActivityIntensity | CostLevel | TransportEase | WeatherSensitivity:
     try:
         return enum_type(str(value).strip().casefold())
     except ValueError as exc:

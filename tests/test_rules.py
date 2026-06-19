@@ -3,7 +3,12 @@
 import unittest
 
 from app.core.rules import evaluate_activity
-from app.models.activity import Activity, ActivityIntensity, CostLevel
+from app.models.activity import (
+    Activity,
+    ActivityIntensity,
+    CostLevel,
+    TransportEase,
+)
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 
@@ -110,6 +115,7 @@ class ActivityRuleTests(unittest.TestCase):
             preferred_intensity=ActivityIntensity.MODERATE,
             avoid_reservations=True,
             suitable_for="families",
+            max_transport_ease=TransportEase.EASY,
         )
         activity = Activity(
             name="Premium court session",
@@ -123,6 +129,7 @@ class ActivityRuleTests(unittest.TestCase):
             duration_minutes=90,
             cost_level=CostLevel.MEDIUM,
             requires_reservation=True,
+            transport_ease=TransportEase.HARD,
             suitable_for=("friends", "teams"),
         )
         weather = WeatherData("Istanbul", 22, 5, 5, "Clear sky")
@@ -145,6 +152,10 @@ class ActivityRuleTests(unittest.TestCase):
         )
         self.assertIn(
             "Activity is not suitable for the selected company.",
+            result.failed_rules,
+        )
+        self.assertIn(
+            "Activity is harder to access than the user's preference.",
             result.failed_rules,
         )
 

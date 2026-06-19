@@ -30,6 +30,14 @@ class WeatherSensitivity(str, Enum):
     HIGH = "high"
 
 
+class TransportEase(str, Enum):
+    """How easy an activity type is to access before venue-level data exists."""
+
+    EASY = "easy"
+    MODERATE = "moderate"
+    HARD = "hard"
+
+
 @dataclass
 class Activity:
     """Candidate activity that can be recommended by the agent."""
@@ -47,5 +55,6 @@ class Activity:
     cost_level: CostLevel = CostLevel.LOW
     weather_sensitivity: WeatherSensitivity = WeatherSensitivity.MODERATE
     requires_reservation: bool = False
+    transport_ease: TransportEase = TransportEase.MODERATE
     suitable_for: tuple[str, ...] = field(default_factory=tuple)
     tags: tuple[str, ...] = field(default_factory=tuple)

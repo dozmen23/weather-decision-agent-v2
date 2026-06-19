@@ -331,10 +331,21 @@ class RecommendationServiceTests(unittest.TestCase):
             agent=DecisionAgent(StubWeatherTool(), StubActivityTool())
         )
 
-        result = service.recommend("Istanbul", self.preferences)
+        result = service.recommend(
+            "Istanbul",
+            self.preferences,
+            venue_origin=(41.0255, 29.0288),
+        )
 
         self.assertTrue(result.deterministic_evaluation.system_behavior_valid)
         self.assertEqual(result.preferences, self.preferences)
+        venue = result.agent_result.recommendations[0].venues[0]
+        self.assertEqual(venue.name, "Demo Sahil Fotoğraf Noktası")
+        self.assertEqual(venue.distance_km, 0.0)
+        venue_trace = result.agent_result.recommendations[0].venue_filter_trace
+        self.assertTrue(venue_trace)
+        self.assertTrue(any(item.passed for item in venue_trace))
+        self.assertTrue(any(not item.passed for item in venue_trace))
         self.assertIsNone(result.explanation)
         self.assertIsNone(result.llm_judgment)
 

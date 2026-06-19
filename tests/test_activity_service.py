@@ -8,6 +8,7 @@ from pathlib import Path
 from app.models.activity import (
     ActivityIntensity,
     CostLevel,
+    TransportEase,
     WeatherSensitivity,
 )
 from app.services.activity_service import ActivityCatalogError, ActivityService
@@ -48,6 +49,14 @@ class ActivityServiceTests(unittest.TestCase):
             park_walk.weather_sensitivity,
             WeatherSensitivity.MODERATE,
         )
+        self.assertEqual(park_walk.transport_ease, TransportEase.EASY)
+
+        trail_run = next(
+            activity
+            for activity in activities
+            if activity.name == "Trail Running"
+        )
+        self.assertEqual(trail_run.transport_ease, TransportEase.HARD)
 
     def test_priority_categories_have_indoor_and_outdoor_options(self) -> None:
         activities = ActivityService().get_all()

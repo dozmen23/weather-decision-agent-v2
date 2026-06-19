@@ -48,6 +48,17 @@ class WeatherService:
         forecast = self._fetch_forecast(location)
         return self._normalize_weather(location, forecast)
 
+    def get_current_weather_for_coordinates(
+        self,
+        latitude: float,
+        longitude: float,
+        label: str = "Selected location",
+    ) -> WeatherData:
+        """Return current weather for a direct map/coordinate selection."""
+        location = self._location_from_coordinates(latitude, longitude, label)
+        forecast = self._fetch_forecast(location)
+        return self._normalize_weather(location, forecast)
+
     def get_daily_forecast(
         self,
         city: str,
@@ -63,6 +74,23 @@ class WeatherService:
         forecast = self._fetch_daily_forecast(location, forecast_days)
         return self._normalize_daily_forecast(location, forecast)
 
+    def get_daily_forecast_for_coordinates(
+        self,
+        latitude: float,
+        longitude: float,
+        label: str = "Selected location",
+        forecast_days: int = 7,
+    ) -> list[WeatherData]:
+        """Return daily forecasts for a direct map/coordinate selection."""
+        if not 1 <= forecast_days <= 16:
+            raise WeatherServiceError(
+                "Forecast day count must be between 1 and 16."
+            )
+
+        location = self._location_from_coordinates(latitude, longitude, label)
+        forecast = self._fetch_daily_forecast(location, forecast_days)
+        return self._normalize_daily_forecast(location, forecast)
+
     def get_weather_for_date(
         self,
         city: str,
@@ -70,6 +98,28 @@ class WeatherService:
     ) -> WeatherData:
         """Return the daily forecast matching a specific date."""
         forecasts = self.get_daily_forecast(city, forecast_days=7)
+        for weather in forecasts:
+            if weather.forecast_date == target_date:
+                return weather
+
+        raise WeatherServiceError(
+            f"No forecast is available for {target_date.isoformat()}."
+        )
+
+    def get_weather_for_coordinates_and_date(
+        self,
+        latitude: float,
+        longitude: float,
+        target_date: date,
+        label: str = "Selected location",
+    ) -> WeatherData:
+        """Return one forecast day for a direct map/coordinate selection."""
+        forecasts = self.get_daily_forecast_for_coordinates(
+            latitude,
+            longitude,
+            label=label,
+            forecast_days=7,
+        )
         for weather in forecasts:
             if weather.forecast_date == target_date:
                 return weather
@@ -117,6 +167,31 @@ class WeatherService:
             raise WeatherServiceError(
                 "Geocoding service returned incomplete location data."
             ) from exc
+
+    @staticmethod
+    def _location_from_coordinates(
+        latitude: float,
+        longitude: float,
+        label: str,
+    ) -> Location:
+        try:
+            normalized_latitude = float(latitude)
+            normalized_longitude = float(longitude)
+        except (TypeError, ValueError) as exc:
+            raise WeatherServiceError("Coordinates must be numeric.") from exc
+
+        if not -90 <= normalized_latitude <= 90:
+            raise WeatherServiceError("Latitude must be between -90 and 90.")
+        if not -180 <= normalized_longitude <= 180:
+            raise WeatherServiceError("Longitude must be between -180 and 180.")
+
+        normalized_label = label.strip() if label else "Selected location"
+        return Location(
+            name=normalized_label,
+            country="",
+            latitude=normalized_latitude,
+            longitude=normalized_longitude,
+        )
 
     def _fetch_forecast(self, location: Location) -> dict[str, Any]:
         query = urlencode(

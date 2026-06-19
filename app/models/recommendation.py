@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 
 from app.models.activity import Activity
+from app.models.venue import Venue, VenueFilterTrace
 
 
 @dataclass
@@ -27,3 +28,5 @@ class Recommendation:
         default_factory=RecommendationScoreBreakdown
     )
     warnings: list[str] = field(default_factory=list)
+    venues: list[Venue] = field(default_factory=list)
+    venue_filter_trace: list[VenueFilterTrace] = field(default_factory=list)

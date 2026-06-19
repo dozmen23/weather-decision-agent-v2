@@ -8,6 +8,7 @@ from app.models.activity import (
     Activity,
     ActivityIntensity,
     CostLevel,
+    TransportEase,
     WeatherSensitivity,
 )
 
@@ -190,6 +191,7 @@ class ActivityService:
                     "requires_reservation",
                     index,
                 ),
+                transport_ease=_parse_transport_ease(raw_activity, index),
                 suitable_for=_parse_string_list(
                     raw_activity["suitable_for"],
                     "suitable_for",
@@ -237,11 +239,12 @@ def _require_boolean_field(
 def _parse_enum(
     enum_type: type[ActivityIntensity]
     | type[CostLevel]
+    | type[TransportEase]
     | type[WeatherSensitivity],
     value: Any,
     field_name: str,
     index: int,
-) -> ActivityIntensity | CostLevel | WeatherSensitivity:
+) -> ActivityIntensity | CostLevel | TransportEase | WeatherSensitivity:
     try:
         return enum_type(str(value).strip().casefold())
     except ValueError as exc:
@@ -250,6 +253,57 @@ def _parse_enum(
             f"Activity at index {index} has invalid {field_name}; "
             f"expected one of: {allowed_values}."
         ) from exc
+
+
+def _parse_transport_ease(
+    raw_activity: dict[str, Any],
+    index: int,
+) -> TransportEase:
+    if "transport_ease" in raw_activity:
+        return _parse_enum(
+            TransportEase,
+            raw_activity["transport_ease"],
+            "transport_ease",
+            index,
+        )
+    return _infer_transport_ease(raw_activity)
+
+
+def _infer_transport_ease(raw_activity: dict[str, Any]) -> TransportEase:
+    name = str(raw_activity["name"]).casefold()
+    tags = {
+        str(tag).casefold()
+        for tag in raw_activity.get("tags", [])
+        if isinstance(tag, str)
+    }
+    text = " ".join([name, *tags])
+
+    hard_markers = {
+        "trail",
+        "coastal",
+        "seaside",
+        "historical",
+        "riverside",
+    }
+    easy_markers = {
+        "cafe",
+        "community",
+        "covered",
+        "indoor",
+        "library",
+        "mall",
+        "museum",
+        "park",
+        "stationary",
+        "track",
+        "treadmill",
+    }
+
+    if any(marker in text for marker in hard_markers):
+        return TransportEase.HARD
+    if any(marker in text for marker in easy_markers):
+        return TransportEase.EASY
+    return TransportEase.MODERATE
 
 
 def _parse_string_list(

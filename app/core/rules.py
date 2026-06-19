@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 
 from app.models.activity import Activity
-from app.models.activity import ActivityIntensity, CostLevel
+from app.models.activity import ActivityIntensity, CostLevel, TransportEase
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData, WeatherSeverity
 
@@ -141,6 +141,11 @@ def _check_practical_preferences(
     if not _is_suitable_for_preference(activity, preferences.suitable_for):
         failed_rules.append("Activity is not suitable for the selected company.")
 
+    if _transport_rank(activity.transport_ease) > _transport_rank(
+        preferences.max_transport_ease
+    ):
+        failed_rules.append("Activity is harder to access than the user's preference.")
+
     if preferences.preferred_intensity is None:
         return
 
@@ -165,6 +170,14 @@ def _intensity_rank(intensity: ActivityIntensity) -> int:
         ActivityIntensity.MODERATE: 1,
         ActivityIntensity.HIGH: 2,
     }[intensity]
+
+
+def _transport_rank(transport_ease: TransportEase) -> int:
+    return {
+        TransportEase.EASY: 0,
+        TransportEase.MODERATE: 1,
+        TransportEase.HARD: 2,
+    }[transport_ease]
 
 
 def _is_suitable_for_preference(

@@ -6,10 +6,21 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 ## Mevcut Kabiliyetler
 
 - Open-Meteo üzerinden güncel hava durumu ve yedi günlük tahmin verisi alır.
+- Şehir adı veya doğrudan koordinat üzerinden hava verisi alabilecek servis
+  altyapısına sahiptir.
+- Streamlit'te şehir ya da harita modu seçilebilir; harita modunda kullanıcı
+  OpenStreetMap üzerinden bir noktaya tıklayıp aynı öneri akışını çalıştırır.
 - Kullanıcının şehir, tarih, aktivite ve konfor tercihlerini değerlendirir.
 - Bütçe, süre, yoğunluk ve rezervasyon istemiyorum tercihlerini filtre olarak
   uygular.
 - Katılımcı tercihini tek başıma, arkadaşla veya aileyle şeklinde dikkate alır.
+- Ulaşım kolaylığı tercihini aktivite düzeyinde dikkate alır; bu alan ileride
+  harita veya gerçek mekan verisiyle beslenebilir.
+- Kontrollü demo mekan veri kaynağından doğrulanmış mekan adayları gösterebilir;
+  haritada seçilen noktaya göre mekan mesafelerini yeniden hesaplar ve adayları
+  haritada marker olarak gösterebilir.
+- Developer Mode'da mekan filtre izini gösterir; hangi mekanın hangi nedenle
+  elendiği veya geçtiği görülebilir.
 - Hava ve pratiklik filtrelerini teknik sayı girişi yerine doğal seviye
   seçenekleriyle toplar.
 - Yedi günlük tahmini kartlı gün seçiciyle gösterir.
@@ -49,7 +60,7 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 ## Proje Yapısı
 
 - `app/`: Uygulamanın Python kodları
-- `data/`: Projede kullanılacak örnek ve değerlendirme verileri
+- `data/`: Aktivite, demo mekan ve değerlendirme verileri
 - `tests/`: Otomatik testler
 - `evaluation/`: Agent sonuçlarını değerlendiren sistem
 - `docs/`: Mimari, blog ve proje notları
@@ -69,7 +80,9 @@ Temel domain modelleri:
 
 Yakın vadeli geliştirme yönü:
 
-- ulaşım kolaylığı gibi kalan tercih filtrelerini eklemek
+- harita destekli lokasyon seçimini canlı mekan verisiyle ilişkilendirmek
+- demo mekan veri kaynağını ileride canlı mekan API'siyle değiştirilebilir
+  hale getirmek
 
 ## Yerel Kurulum
 

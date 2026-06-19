@@ -59,6 +59,51 @@ class WeatherServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(WeatherServiceError, "No location was found"):
             service.get_current_weather("NotARealCity")
 
+    def test_coordinates_skip_geocoding_and_fetch_current_weather(self) -> None:
+        requested_urls: list[str] = []
+
+        def fake_fetcher(url: str) -> dict[str, object]:
+            requested_urls.append(url)
+            if url.startswith(FORECAST_URL):
+                return {
+                    "current": {
+                        "temperature_2m": 21.0,
+                        "precipitation_probability": 15,
+                        "weather_code": 1,
+                        "wind_speed_10m": 9.5,
+                    }
+                }
+            self.fail(f"Unexpected URL: {url}")
+
+        weather = WeatherService(fake_fetcher).get_current_weather_for_coordinates(
+            41.0138,
+            28.9497,
+            label="Pinned Istanbul",
+        )
+
+        self.assertEqual(weather.city, "Pinned Istanbul")
+        self.assertEqual(weather.condition, "Partly cloudy")
+        self.assertEqual(len(requested_urls), 1)
+        query = parse_qs(urlparse(requested_urls[0]).query)
+        self.assertEqual(query["latitude"], ["41.0138"])
+        self.assertEqual(query["longitude"], ["28.9497"])
+
+    def test_invalid_coordinates_are_rejected_before_api_call(self) -> None:
+        calls = 0
+
+        def fake_fetcher(_: str) -> dict[str, object]:
+            nonlocal calls
+            calls += 1
+            return {}
+
+        with self.assertRaisesRegex(WeatherServiceError, "Latitude"):
+            WeatherService(fake_fetcher).get_current_weather_for_coordinates(
+                120,
+                28.9497,
+            )
+
+        self.assertEqual(calls, 0)
+
     def test_short_city_name_is_rejected_before_api_call(self) -> None:
         calls = 0
 
@@ -170,6 +215,37 @@ class WeatherServiceTests(unittest.TestCase):
         self.assertEqual(query["forecast_days"], ["7"])
         self.assertIn("temperature_2m_max", query["daily"][0])
         self.assertEqual(query["timezone"], ["auto"])
+
+    def test_coordinate_daily_forecast_is_requested_and_normalized(self) -> None:
+        requested_urls: list[str] = []
+
+        def fake_fetcher(url: str) -> dict[str, object]:
+            requested_urls.append(url)
+            if url.startswith(FORECAST_URL):
+                return {
+                    "daily": {
+                        "time": ["2026-06-12"],
+                        "weather_code": [0],
+                        "temperature_2m_max": [27.0],
+                        "temperature_2m_min": [17.0],
+                        "precipitation_probability_max": [15],
+                        "wind_speed_10m_max": [10.0],
+                    }
+                }
+            self.fail(f"Unexpected URL: {url}")
+
+        forecast = WeatherService(fake_fetcher).get_daily_forecast_for_coordinates(
+            41.0138,
+            28.9497,
+            label="Pinned Istanbul",
+            forecast_days=7,
+        )
+
+        self.assertEqual(forecast[0].city, "Pinned Istanbul")
+        self.assertEqual(forecast[0].forecast_date, date(2026, 6, 12))
+        query = parse_qs(urlparse(requested_urls[0]).query)
+        self.assertEqual(query["latitude"], ["41.0138"])
+        self.assertEqual(query["forecast_days"], ["7"])
 
     def test_invalid_forecast_day_count_is_rejected_before_api_call(self) -> None:
         calls = 0
