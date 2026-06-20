@@ -1,6 +1,7 @@
 """Tests for batch scenario evaluation and aggregate metrics."""
 
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,21 +10,38 @@ from evaluation.evaluation_runner import (
     EvaluationDataError,
     EvaluationRunner,
 )
+from app.services.venue_providers.google_places_provider import (
+    GooglePlacesVenueProvider,
+)
+
+
+class FakeGooglePlacesClient:
+    def __init__(self, places):
+        self.places = places
+
+    def fetch_nearby_places(self, **_):
+        return self.places
 
 
 class EvaluationRunnerTests(unittest.TestCase):
     def test_default_scenarios_all_pass(self) -> None:
         report = EvaluationRunner().run()
 
-        self.assertEqual(report.summary.total_cases, 12)
-        self.assertEqual(report.summary.passed_cases, 12)
+        self.assertEqual(report.summary.total_cases, 13)
+        self.assertEqual(report.summary.passed_cases, 13)
         self.assertEqual(report.summary.scenario_pass_rate_percent, 100.0)
         self.assertEqual(report.summary.system_validity_rate_percent, 100.0)
         self.assertEqual(
             report.summary.recommendation_success_rate_percent,
-            91.67,
+            92.31,
         )
-        self.assertEqual(report.summary.evaluator_approval_rate_percent, 91.67)
+        self.assertEqual(report.summary.evaluator_approval_rate_percent, 92.31)
+        venue_case = next(
+            scenario
+            for scenario in report.scenarios
+            if scenario.case_id == "coordinate-origin-sorts-venue-candidates"
+        )
+        self.assertTrue(venue_case.passed)
 
     def test_inline_catalog_can_exercise_no_recommendation_path(self) -> None:
         case = self._base_case()
@@ -89,6 +107,74 @@ class EvaluationRunnerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(EvaluationDataError, "missing: expected"):
             self._run_temporary_cases([invalid_case])
+
+    def test_invalid_venue_origin_is_rejected(self) -> None:
+        invalid_case = self._base_case()
+        invalid_case["venue_origin"] = {"latitude": 120, "longitude": 29}
+
+        with self.assertRaisesRegex(EvaluationDataError, "invalid venue origin"):
+            self._run_temporary_cases([invalid_case])
+
+    def test_runner_ignores_runtime_venue_provider_environment(self) -> None:
+        previous_value = os.environ.get("VENUE_PROVIDER")
+        os.environ["VENUE_PROVIDER"] = "external"
+        try:
+            report = self._run_temporary_cases([self._base_case()])
+        finally:
+            if previous_value is None:
+                del os.environ["VENUE_PROVIDER"]
+            else:
+                os.environ["VENUE_PROVIDER"] = previous_value
+
+        self.assertEqual(report.summary.passed_cases, 1)
+
+    def test_google_places_fixture_verifies_source_sorting_and_filtering(self) -> None:
+        case = self._base_case()
+        case["id"] = "google-places-indoor-walk"
+        case["venue_origin"] = {"latitude": 41.0, "longitude": 29.0}
+        case["preferences"]["prefers_outdoor"] = False
+        case["preferences"]["max_cost_level"] = "low"
+        case["expected"].update(
+            {
+                "top_activity": "Indoor Track Walk",
+                "top_venue": "Yakın Uygun AVM",
+                "top_venue_source": "google_places",
+                "venue_count": 1,
+                "venue_trace_has_rejection_reason": "Bütçe sınırını aştı.",
+            }
+        )
+        provider = GooglePlacesVenueProvider(
+            FakeGooglePlacesClient(
+                [
+                    {
+                        "id": "expensive",
+                        "displayName": {"text": "Pahalı AVM"},
+                        "location": {"latitude": 41.0002, "longitude": 29.0},
+                        "types": ["shopping_mall"],
+                        "priceLevel": "PRICE_LEVEL_EXPENSIVE",
+                        "businessStatus": "OPERATIONAL",
+                    },
+                    {
+                        "id": "affordable",
+                        "displayName": {"text": "Yakın Uygun AVM"},
+                        "location": {"latitude": 41.0008, "longitude": 29.0},
+                        "types": ["shopping_mall"],
+                        "priceLevel": "PRICE_LEVEL_INEXPENSIVE",
+                        "businessStatus": "OPERATIONAL",
+                    },
+                ]
+            )
+        )
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Path(temporary_directory) / "cases.json"
+            path.write_text(
+                json.dumps({"version": 1, "cases": [case]}),
+                encoding="utf-8",
+            )
+            report = EvaluationRunner(path, venue_provider=provider).run()
+
+        self.assertEqual(report.summary.passed_cases, 1)
 
     def _run_temporary_cases(self, cases: list[dict[str, object]]):
         with tempfile.TemporaryDirectory() as temporary_directory:

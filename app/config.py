@@ -54,6 +54,59 @@ class LLMSettings:
         )
 
 
+@dataclass(frozen=True)
+class VenueProviderSettings:
+    """Runtime configuration for the trusted venue provider."""
+
+    provider: str = "json"
+    json_path: str = ""
+    google_places_api_key: str = field(default="", repr=False)
+    google_places_radius_meters: int = 2500
+    google_places_max_results: int = 10
+    google_places_language_code: str = "tr"
+
+    @classmethod
+    def from_environment(
+        cls,
+        environment: Mapping[str, str] | None = None,
+    ) -> "VenueProviderSettings":
+        """Load venue provider settings from environment variables."""
+        source = environment if environment is not None else os.environ
+        provider = source.get("VENUE_PROVIDER", "json").strip().casefold()
+        json_path = source.get("VENUE_JSON_PATH", "").strip()
+        google_places_api_key = source.get("GOOGLE_PLACES_API_KEY", "").strip()
+        google_places_radius_meters = _parse_positive_int(
+            source.get("GOOGLE_PLACES_RADIUS_METERS", "2500"),
+            "GOOGLE_PLACES_RADIUS_METERS",
+        )
+        google_places_max_results = _parse_positive_int(
+            source.get("GOOGLE_PLACES_MAX_RESULTS", "10"),
+            "GOOGLE_PLACES_MAX_RESULTS",
+        )
+        google_places_language_code = source.get(
+            "GOOGLE_PLACES_LANGUAGE_CODE",
+            "tr",
+        ).strip()
+
+        if provider not in {"json", "external", "google_places"}:
+            raise ConfigurationError(
+                "VENUE_PROVIDER must be 'json', 'external', or 'google_places'."
+            )
+        if provider == "google_places" and not google_places_api_key:
+            raise ConfigurationError(
+                "VENUE_PROVIDER=google_places requires GOOGLE_PLACES_API_KEY."
+            )
+
+        return cls(
+            provider=provider,
+            json_path=json_path,
+            google_places_api_key=google_places_api_key,
+            google_places_radius_meters=google_places_radius_meters,
+            google_places_max_results=google_places_max_results,
+            google_places_language_code=google_places_language_code,
+        )
+
+
 def _parse_boolean(value: str) -> bool:
     normalized = value.strip().casefold()
     if normalized in {"true", "1", "yes", "on"}:
@@ -63,3 +116,14 @@ def _parse_boolean(value: str) -> bool:
     raise ConfigurationError(
         "LLM_ENABLED must be true or false."
     )
+
+
+def _parse_positive_int(value: str, name: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigurationError(f"{name} must be a positive integer.") from exc
+
+    if parsed <= 0:
+        raise ConfigurationError(f"{name} must be a positive integer.")
+    return parsed

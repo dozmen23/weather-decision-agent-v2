@@ -21,6 +21,13 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
   haritada marker olarak gösterebilir.
 - Developer Mode'da mekan filtre izini gösterir; hangi mekanın hangi nedenle
   elendiği veya geçtiği görülebilir.
+- Mekan kaynağı provider mimarisiyle ayrılmıştır; JSON demo provider, static
+  test provider, generic external provider ve Google Places provider sınırı
+  vardır.
+- `VENUE_PROVIDER=json`, `VENUE_PROVIDER=google_places` ve opsiyonel
+  `VENUE_JSON_PATH` ayarlarıyla mekan kaynağı merkezi olarak seçilebilir.
+- Google Places modunda Nearby Search, haritada seçilen koordinata göre çalışır;
+  API key `.env` içindeki `GOOGLE_PLACES_API_KEY` üzerinden okunur.
 - Hava ve pratiklik filtrelerini teknik sayı girişi yerine doğal seviye
   seçenekleriyle toplar.
 - Yedi günlük tahmini kartlı gün seçiciyle gösterir.
@@ -50,8 +57,9 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
   çalıştırılıp pass/fail sonuçları görülebilir.
 - Katalogdaki aktivite adları ve aktivite türleri User Mode'da Türkçe
   etiketlerle gösterilir.
-- Reproducible evaluation senaryolarıyla exact match, fallback ve güvenli durma
-  davranışlarını test eder.
+- Reproducible evaluation senaryolarıyla exact match, fallback, güvenli durma,
+  coordinate-origin venue sorting ve venue filtering trace davranışlarını test
+  eder.
 - Opsiyonel JSONL history repository ile öneri geçmişi ve kullanıcı feedback'i
   saklar; Streamlit üzerinden beğendim/beğenmedim geri bildirimi alınabilir.
 - Feedback geçmişinden küçük kişiselleştirme sinyali üretir; kapalı alan
@@ -94,6 +102,8 @@ pip install -r requirements.txt
 
 Gerçek LLM entegrasyonu için `.env.example` dosyasını `.env` olarak
 kopyalayıp ayarları doldurun. `.env` dosyası Git tarafından takip edilmez.
+Mekan önerileri varsayılan olarak kontrollü JSON demo kataloğunu kullanır;
+farklı bir JSON katalog için `VENUE_JSON_PATH` ayarlanabilir.
 
 Web arayüzünü başlatmak için:
 

@@ -28,14 +28,50 @@ free-form LLM generation. Possible future sources:
 - A curated local JSON data set for demo scenarios.
 - A small trusted venue provider adapter.
 
-The first implementation uses `data/venues.json` as a trusted demo source and
-`VenueService` as the provider boundary. In map mode, the selected coordinate is
-also used as the venue origin, so demo venue distances are recalculated before
-sorting. The UI can also show verified venue candidates as map markers. A live
-places API can replace that source later without letting the LLM invent venue
-facts.
+The first implementation uses `data/venues.json` through `JsonVenueProvider` as
+a trusted demo source. `VenueService` depends on the provider interface, so a
+future live provider can be swapped in without changing the scoring and safety
+rules. In map mode, the selected coordinate is also used as the venue origin, so
+demo venue distances are recalculated before sorting. The UI can also show
+verified venue candidates as map markers. Google Places can now be selected as
+a live provider for map-origin nearby search without letting the LLM invent
+venue facts.
 Developer Mode exposes a venue filtering trace so rejected venues remain
 auditable without showing technical details to regular users.
+
+## Provider Boundary
+
+Current providers:
+
+- `JsonVenueProvider`: reads the controlled demo data set.
+- `StaticVenueProvider`: supports tests and controlled in-memory demos.
+- `ExternalVenueProvider`: validates structured payloads returned by a future
+  Foursquare or similar client.
+- `GooglePlacesVenueProvider`: calls Google Places Nearby Search for the
+  selected map coordinate and normalizes the response into trusted venue
+  candidates.
+
+Runtime selection:
+
+- `VENUE_PROVIDER=json` keeps the controlled demo source active.
+- `VENUE_JSON_PATH=/path/to/venues.json` can point to another trusted JSON
+  catalog.
+- `VENUE_PROVIDER=google_places` enables live Google Places nearby search and
+  requires `GOOGLE_PLACES_API_KEY`.
+- `VENUE_PROVIDER=external` is reserved for a future live client and must not be
+  enabled until that client exists.
+
+The Google Places provider maps activity categories to supported Google place
+types, requests a limited field mask, and recalculates distance from the
+selected origin. The LLM still cannot create venues, alter distance values, or
+bypass venue filters.
+Automated fixtures cover every mapped activity category, Google source
+attribution, deterministic sorting and filtering, malformed place isolation,
+quota error handling, and safe continuation without venues when the live
+provider is unavailable.
+External provider clients must return a list of structured venue payloads.
+Client failures, rate limits, malformed payloads, and duplicate venue names are
+wrapped as `VenueCatalogError` so the recommendation flow can fail safely.
 
 Every venue candidate should be normalized into fields such as:
 

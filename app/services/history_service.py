@@ -150,12 +150,7 @@ def _record_from_dict(payload: Any) -> RecommendationHistoryRecord:
             weather=dict(payload["weather"]),
             preferences=dict(payload["preferences"]),
             recommendations=[
-                RecommendationHistoryItem(
-                    activity_name=str(item["activity_name"]),
-                    activity_type=str(item["activity_type"]),
-                    is_outdoor=bool(item["is_outdoor"]),
-                    score=float(item["score"]),
-                )
+                _history_item_from_dict(item)
                 for item in raw_recommendations
                 if isinstance(item, dict)
             ],
@@ -166,3 +161,17 @@ def _record_from_dict(payload: Any) -> RecommendationHistoryRecord:
         raise RecommendationHistoryError(
             "Recommendation history record is incomplete."
         ) from exc
+
+
+def _history_item_from_dict(payload: dict[str, Any]) -> RecommendationHistoryItem:
+    venue_names = payload.get("venue_names", [])
+    if not isinstance(venue_names, list):
+        raise TypeError
+
+    return RecommendationHistoryItem(
+        activity_name=str(payload["activity_name"]),
+        activity_type=str(payload["activity_type"]),
+        is_outdoor=bool(payload["is_outdoor"]),
+        score=float(payload["score"]),
+        venue_names=tuple(str(venue_name) for venue_name in venue_names),
+    )

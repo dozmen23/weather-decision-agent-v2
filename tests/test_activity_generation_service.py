@@ -133,6 +133,38 @@ class ActivityGenerationServiceTests(unittest.TestCase):
                 self.preferences,
             )
 
+    def test_generated_activity_with_fake_venue_field_is_rejected(self) -> None:
+        client = FakeStructuredLLMClient(
+            {
+                "activities": [
+                    {
+                        "name": "Indoor Recovery Run",
+                        "activity_type": "running",
+                        "is_outdoor": False,
+                        "min_temperature_celsius": -20,
+                        "max_temperature_celsius": 50,
+                        "max_precipitation_probability_percent": 100,
+                        "max_wind_speed_kmh": 100,
+                        "purpose": "cardio exercise",
+                        "intensity": "moderate",
+                        "duration_minutes": 40,
+                        "cost_level": "low",
+                        "weather_sensitivity": "none",
+                        "requires_reservation": False,
+                        "suitable_for": ["solo"],
+                        "tags": ["running"],
+                        "venue_name": "Invented Stadium",
+                    }
+                ]
+            }
+        )
+
+        with self.assertRaisesRegex(LLMServiceError, "unsupported fields"):
+            ActivityGenerationService(client).generate(
+                self.weather,
+                self.preferences,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

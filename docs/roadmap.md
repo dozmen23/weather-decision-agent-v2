@@ -4,8 +4,8 @@
 
 - Seven-day weather forecast retrieval and normalization.
 - Agent evaluation for a user-selected forecast date.
-- Coordinate-based weather retrieval foundation for future map selection.
-- Streamlit location mode for city input or coordinate-based map preview.
+- Coordinate-based weather retrieval for map-selected locations.
+- Streamlit location mode for city input or large map-based point selection.
 - Card-style seven-day forecast selector in the Streamlit sidebar.
 - Expanded activity model with practical metadata such as purpose, intensity,
   duration, cost level, weather sensitivity, reservation needs, participant fit,
@@ -17,6 +17,18 @@
   venue data later.
 - Location and venue integration plan for future map and real venue support.
 - Trusted demo venue data source and deterministic venue candidate filtering.
+- Pluggable venue provider boundary with JSON, static test, and external
+  provider adapters.
+- Google Places live venue provider wiring for map-origin Nearby Search,
+  including API key configuration, type mapping, field masks, and normalized
+  venue output.
+- Google Places evaluation fixtures verify activity-to-place-type coverage,
+  trusted source attribution, distance sorting, preference filtering, malformed
+  result isolation, and graceful degradation during provider failures.
+- Provider-specific quota errors remain diagnosable while an unavailable venue
+  lookup never removes an otherwise safe activity recommendation.
+- Map-selected venue origin, venue distance recalculation, venue map markers,
+  and Developer Mode venue filtering trace.
 - Natural filter controls for weather and practicality preferences, such as
   low/medium/high wind or short/medium/long duration instead of raw numbers.
 - Smarter fallback flow that tries exact matches before related indoor
@@ -29,15 +41,18 @@
   `preference_match`, `comfort_match`, `practicality`, and `total_score`.
 - Expanded evaluation scenarios for thunderstorm fallback, high wind fallback,
   high temperature fallback, light rain tolerance, exact preference matches,
-  and no safe activity availability.
+  no safe activity availability, coordinate-origin venue sorting, and venue
+  filter trace behavior.
 - Controlled LLM-assisted activity generation when the catalog cannot produce
   a safe recommendation. Generated activities are treated only as candidates
   and must pass deterministic rules, scoring, and evaluation before being shown.
 - LLM safety tests reject invented explanation activities, duplicate or missing
-  explanation details, unrelated generated candidates, unsafe generated
-  activities, invalid confidence values, and invalid approvals.
+  explanation details, unrelated generated candidates, fake venue fields,
+  unsafe generated activities, invalid confidence values, and invalid approvals.
 - Lightweight JSONL recommendation history and feedback persistence connected
   to the Streamlit flow.
+- Recommendation history keeps verified venue candidate names with each saved
+  recommendation, while older history records remain readable.
 - Lightweight personalization from feedback history. Repeated negative indoor
   feedback applies only a small indoor practicality penalty.
 - User Mode and Developer Mode split in Streamlit. User Mode keeps the
@@ -57,12 +72,9 @@
 
 ## Next Technical Milestones
 
-1. Design the map/location and real venue data flow without letting the LLM
-   choose unsafe venues directly.
-2. Replace the demo venue source with an external places provider adapter.
-3. Keep expanding deterministic and LLM evaluation scenarios as new behavior is
-   added.
-4. Prepare deployment only after the application workflow is complete.
+1. Define the next product scope together after reviewing the completed venue
+   provider, Google Places, and evaluation stages.
+2. Prepare deployment only after the application workflow is complete.
 
 ## Activity Catalog Direction
 
@@ -92,7 +104,7 @@ These items are intentionally postponed until the technical workflow is stable:
   LLM review into Developer Mode.
 - Show the seven-day forecast as a visual calendar/day selector similar to
   language-learning applications.
-- Let users choose a location from a map.
+- Further polish venue cards and map marker layout.
 - Improve activity cards, mobile layout, and user-friendly error messages.
 
 ## Explicitly Out of Scope For Now
@@ -100,7 +112,7 @@ These items are intentionally postponed until the technical workflow is stable:
 - Login and registration.
 - Complex database design.
 - Full Google Maps integration.
-- Real venue recommendation.
+- Booking, live opening hours, and route planning.
 - Advanced ML personalization.
 - Mobile app development.
 - Letting the LLM directly choose activities.

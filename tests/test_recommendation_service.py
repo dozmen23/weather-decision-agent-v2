@@ -1,5 +1,6 @@
 """Tests for the end-to-end recommendation workflow service."""
 
+import os
 import unittest
 from datetime import date
 from pathlib import Path
@@ -7,6 +8,7 @@ from tempfile import TemporaryDirectory
 from typing import Any
 
 from app.agent.decision_agent import AgentResult, DecisionAgent
+from app.config import ConfigurationError
 from app.llm.judge_service import LLMJudgeVerdict
 from app.models.activity import Activity
 from app.models.recommendation import Recommendation
@@ -19,6 +21,12 @@ from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 from app.services.history_service import RecommendationHistoryRepository
 from app.services.recommendation_service import RecommendationService
+from app.services.venue_providers import JsonVenueProvider
+from app.services.venue_providers.google_places_provider import (
+    GooglePlacesVenueProvider,
+)
+from app.services.venue_service import VenueService
+from app.services.venue_service import VenueCatalogError
 
 
 class FakeStructuredLLMClient:
@@ -266,6 +274,11 @@ class EmptyActivityTool:
         return []
 
 
+class FailingGooglePlacesClient:
+    def fetch_nearby_places(self, **_):
+        raise VenueCatalogError("Google Places request failed: Quota exceeded")
+
+
 class InvalidAgent:
     def run(
         self,
@@ -328,7 +341,8 @@ class RecommendationServiceTests(unittest.TestCase):
 
     def test_workflow_can_run_without_llm(self) -> None:
         service = RecommendationService(
-            agent=DecisionAgent(StubWeatherTool(), StubActivityTool())
+            agent=DecisionAgent(StubWeatherTool(), StubActivityTool()),
+            venue_service=VenueService(provider=JsonVenueProvider()),
         )
 
         result = service.recommend(
@@ -348,6 +362,45 @@ class RecommendationServiceTests(unittest.TestCase):
         self.assertTrue(any(not item.passed for item in venue_trace))
         self.assertIsNone(result.explanation)
         self.assertIsNone(result.llm_judgment)
+
+    def test_google_places_failure_preserves_safe_activity_recommendation(self) -> None:
+        service = RecommendationService(
+            agent=DecisionAgent(StubWeatherTool(), StubActivityTool()),
+            venue_service=VenueService(
+                provider=GooglePlacesVenueProvider(FailingGooglePlacesClient())
+            ),
+        )
+
+        result = service.recommend(
+            "Istanbul",
+            self.preferences,
+            venue_origin=(41.0, 29.0),
+        )
+
+        self.assertEqual(result.agent_result.status, "completed")
+        self.assertEqual(
+            result.agent_result.recommendations[0].activity.name,
+            "Park Walk",
+        )
+        self.assertEqual(result.agent_result.recommendations[0].venues, [])
+        self.assertTrue(result.deterministic_evaluation.system_behavior_valid)
+
+    def test_external_venue_provider_requires_client_configuration(self) -> None:
+        previous_value = os.environ.get("VENUE_PROVIDER")
+        os.environ["VENUE_PROVIDER"] = "external"
+        try:
+            with self.assertRaisesRegex(
+                ConfigurationError,
+                "external venue client",
+            ):
+                RecommendationService(
+                    agent=DecisionAgent(StubWeatherTool(), StubActivityTool())
+                )
+        finally:
+            if previous_value is None:
+                del os.environ["VENUE_PROVIDER"]
+            else:
+                os.environ["VENUE_PROVIDER"] = previous_value
 
     def test_deterministic_rejection_prevents_llm_calls(self) -> None:
         llm_client = FakeStructuredLLMClient()
@@ -390,6 +443,7 @@ class RecommendationServiceTests(unittest.TestCase):
             service = RecommendationService(
                 agent=DecisionAgent(StubWeatherTool(), StubActivityTool()),
                 history_repository=repository,
+                venue_service=VenueService(provider=JsonVenueProvider()),
             )
 
             result = service.recommend("Istanbul", self.preferences)
@@ -399,6 +453,10 @@ class RecommendationServiceTests(unittest.TestCase):
             self.assertEqual(
                 result.history_record.recommendations[0].activity_name,
                 "Park Walk",
+            )
+            self.assertEqual(
+                result.history_record.recommendations[0].venue_names,
+                ("Demo Sahil Fotoğraf Noktası",),
             )
             self.assertFalse(result.history_record.used_generated_candidates)
             self.assertEqual(

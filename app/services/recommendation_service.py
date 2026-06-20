@@ -31,6 +31,7 @@ from app.services.history_service import (
     RecommendationHistoryError,
     RecommendationHistoryRepository,
 )
+from app.services.venue_provider_factory import create_venue_provider_from_environment
 from app.services.venue_service import VenueCatalogError, VenueService
 from evaluation.evaluator import (
     DeterministicEvaluator,
@@ -70,7 +71,9 @@ class RecommendationService:
         self.agent = agent or DecisionAgent()
         self.evaluator = evaluator or DeterministicEvaluator()
         self.history_repository = history_repository
-        self.venue_service = venue_service or VenueService()
+        self.venue_service = venue_service or VenueService(
+            provider=create_venue_provider_from_environment()
+        )
         self.explanation_service = (
             ExplanationService(llm_client) if llm_client is not None else None
         )
@@ -446,6 +449,7 @@ def _build_history_record(
                 activity_type=recommendation.activity.activity_type,
                 is_outdoor=recommendation.activity.is_outdoor,
                 score=recommendation.score,
+                venue_names=tuple(venue.name for venue in recommendation.venues),
             )
             for recommendation in agent_result.recommendations
         ],

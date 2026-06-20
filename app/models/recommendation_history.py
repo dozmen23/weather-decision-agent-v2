@@ -21,6 +21,7 @@ class RecommendationHistoryItem:
     activity_type: str
     is_outdoor: bool
     score: float
+    venue_names: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass

@@ -97,6 +97,25 @@ ACTIVITY_GENERATION_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+ALLOWED_ACTIVITY_FIELDS = {
+    "name",
+    "activity_type",
+    "is_outdoor",
+    "min_temperature_celsius",
+    "max_temperature_celsius",
+    "max_precipitation_probability_percent",
+    "max_wind_speed_kmh",
+    "purpose",
+    "intensity",
+    "duration_minutes",
+    "cost_level",
+    "weather_sensitivity",
+    "requires_reservation",
+    "transport_ease",
+    "suitable_for",
+    "tags",
+}
+
 
 class ActivityGenerationService:
     """Ask an LLM for candidates that the deterministic system will verify."""
@@ -226,6 +245,14 @@ def _parse_generated_activity(raw_activity: Any, index: int) -> Activity:
     if not isinstance(raw_activity, dict):
         raise LLMServiceError(
             f"LLM generated activity at index {index} must be an object."
+        )
+
+    extra_fields = set(raw_activity) - ALLOWED_ACTIVITY_FIELDS
+    if extra_fields:
+        raise LLMServiceError(
+            "LLM generated activity at index "
+            f"{index} contains unsupported fields: "
+            + ", ".join(sorted(extra_fields))
         )
 
     try:

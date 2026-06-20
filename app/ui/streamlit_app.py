@@ -38,6 +38,7 @@ from app.services.recommendation_service import (
     RecommendationService,
     RecommendationWorkflowResult,
 )
+from app.services.venue_provider_factory import inspect_venue_provider
 from app.services.weather_service import WeatherService, WeatherServiceError
 from evaluation.evaluation_runner import EvaluationDataError, EvaluationRunner
 
@@ -618,6 +619,17 @@ def format_venue_filter_status(passed: bool) -> str:
     return "Geçti" if passed else "Elendi"
 
 
+def format_venue_provider_label(provider: str) -> str:
+    """Return a readable label for the active venue provider."""
+    if provider == "json":
+        return "JSON demo katalog"
+    if provider == "external":
+        return "External provider"
+    if provider == "google_places":
+        return "Google Places"
+    return provider
+
+
 def calculate_map_center(
     coordinates: list[tuple[float, float]],
 ) -> tuple[float, float]:
@@ -1117,11 +1129,47 @@ def _render_empty_state(developer_mode: bool) -> None:
     if developer_mode:
         columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
         columns[1].metric("Evaluation kontrolleri", "6")
-        columns[2].metric("Otomatik test", "117 başarılı")
+        columns[2].metric("Otomatik test", "152 başarılı")
+        _render_venue_provider_status()
     else:
         columns[0].metric("Görünüm", "Sade")
         columns[1].metric("Geçmiş", "Aktif")
         columns[2].metric("Feedback", "Hazır")
+
+
+def _render_venue_provider_status() -> None:
+    st.subheader("Venue provider")
+    inspection = inspect_venue_provider()
+
+    columns = st.columns(4)
+    columns[0].metric(
+        "Aktif kaynak",
+        format_venue_provider_label(inspection.provider),
+    )
+    columns[1].metric(
+        "JSON katalog",
+        inspection.json_path or "varsayılan demo",
+    )
+    columns[2].metric(
+        "Durum",
+        "hazır" if inspection.available else "hatalı",
+    )
+    columns[3].metric("Mekan", str(inspection.venue_count))
+
+    if inspection.sources:
+        st.caption("Kaynaklar: " + ", ".join(inspection.sources))
+    if not inspection.available:
+        st.error(f"Venue provider yüklenemedi: {inspection.error}")
+    if inspection.provider == "external":
+        st.warning(
+            "External provider seçili ama canlı client henüz bağlanmadı. "
+            "Bu mod için provider client wiring tamamlanmalı."
+        )
+    if inspection.provider == "google_places":
+        st.caption(
+            "Google Places canlı araması, kullanıcı bir konum seçip öneri "
+            "istediğinde yapılır."
+        )
 
 
 def _render_workflow_result(

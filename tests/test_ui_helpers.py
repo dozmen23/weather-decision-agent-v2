@@ -53,6 +53,7 @@ from app.ui.streamlit_app import (
     format_venue_distance,
     format_venue_distance_level,
     format_venue_filter_status,
+    format_venue_provider_label,
     format_venue_transport_ease,
     format_view_mode,
     format_warning,
@@ -149,6 +150,14 @@ class UIHelperTests(unittest.TestCase):
         )
         self.assertEqual(format_venue_filter_status(True), "Geçti")
         self.assertEqual(format_venue_filter_status(False), "Elendi")
+        self.assertEqual(
+            format_venue_provider_label("json"),
+            "JSON demo katalog",
+        )
+        self.assertEqual(
+            format_venue_provider_label("external"),
+            "External provider",
+        )
         self.assertEqual(format_condition("Partly cloudy"), "Parçalı bulutlu")
         self.assertEqual(format_severity("MODERATE"), "temkinli")
         self.assertEqual(

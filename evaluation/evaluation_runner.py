@@ -14,6 +14,9 @@ from app.models.activity import (
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
 from app.services.activity_service import ActivityService
+from app.services.recommendation_service import RecommendationService
+from app.services.venue_providers import JsonVenueProvider, VenueProvider
+from app.services.venue_service import VenueService
 from evaluation.evaluator import DeterministicEvaluator
 from evaluation.metrics import (
     BatchEvaluationReport,
@@ -87,9 +90,11 @@ class EvaluationRunner:
         self,
         cases_path: Path = DEFAULT_CASES_PATH,
         evaluator: DeterministicEvaluator | None = None,
+        venue_provider: VenueProvider | None = None,
     ) -> None:
         self.cases_path = cases_path
         self.evaluator = evaluator or DeterministicEvaluator()
+        self.venue_provider = venue_provider or JsonVenueProvider()
 
     def run(self) -> BatchEvaluationReport:
         """Run every case and return detailed and aggregate results."""
@@ -112,16 +117,46 @@ class EvaluationRunner:
             else ActivityService()
         )
 
-        result = DecisionAgent(
+        agent = DecisionAgent(
             weather_tool=StaticWeatherTool(weather),
             activity_tool=activity_tool,
-        ).run(case["city"], preferences)
-        evaluation = self.evaluator.evaluate(result, preferences)
+        )
+        workflow_result = RecommendationService(
+            agent=agent,
+            evaluator=self.evaluator,
+            venue_service=VenueService(provider=self.venue_provider),
+        ).recommend(
+            case["city"],
+            preferences,
+            venue_origin=_parse_venue_origin(case.get("venue_origin"), case["id"]),
+        )
+        result = workflow_result.agent_result
+        evaluation = workflow_result.deterministic_evaluation
 
         actual_top_activity = (
             result.recommendations[0].activity.name
             if result.recommendations
             else None
+        )
+        actual_top_venue = (
+            result.recommendations[0].venues[0].name
+            if result.recommendations and result.recommendations[0].venues
+            else None
+        )
+        actual_top_venue_distance = (
+            result.recommendations[0].venues[0].distance_km
+            if result.recommendations and result.recommendations[0].venues
+            else None
+        )
+        actual_top_venue_source = (
+            result.recommendations[0].venues[0].source
+            if result.recommendations and result.recommendations[0].venues
+            else None
+        )
+        actual_venue_count = (
+            len(result.recommendations[0].venues)
+            if result.recommendations
+            else 0
         )
         actual_actions = {step.action.value for step in result.trace}
         mismatches: list[str] = []
@@ -156,6 +191,41 @@ class EvaluationRunner:
                 mismatches.append(
                     f"missing required action: {required_action}"
                 )
+
+        if "top_venue" in expected:
+            _compare(
+                mismatches,
+                "top_venue",
+                expected["top_venue"],
+                actual_top_venue,
+            )
+        if "top_venue_distance_km" in expected:
+            _compare(
+                mismatches,
+                "top_venue_distance_km",
+                float(expected["top_venue_distance_km"]),
+                actual_top_venue_distance,
+            )
+        if "top_venue_source" in expected:
+            _compare(
+                mismatches,
+                "top_venue_source",
+                expected["top_venue_source"],
+                actual_top_venue_source,
+            )
+        if "venue_count" in expected:
+            _compare(
+                mismatches,
+                "venue_count",
+                int(expected["venue_count"]),
+                actual_venue_count,
+            )
+        if "venue_trace_has_rejection_reason" in expected:
+            _compare_venue_trace_reason(
+                mismatches,
+                result,
+                str(expected["venue_trace_has_rejection_reason"]),
+            )
 
         return ScenarioEvaluation(
             case_id=case["id"],
@@ -238,6 +308,10 @@ def _validate_case(case: Any, index: int) -> None:
         raise EvaluationDataError(
             f"Evaluation case '{case['id']}' has invalid inline activities."
         )
+    if "venue_origin" in case and not isinstance(case["venue_origin"], dict):
+        raise EvaluationDataError(
+            f"Evaluation case '{case['id']}' has invalid venue origin."
+        )
 
 
 def _parse_weather(raw: dict[str, Any], case_id: str) -> WeatherData:
@@ -299,6 +373,28 @@ def _parse_preferences(
         raise EvaluationDataError(
             f"Evaluation case '{case_id}' has incomplete preferences."
         ) from exc
+
+
+def _parse_venue_origin(
+    raw_origin: Any,
+    case_id: str,
+) -> tuple[float, float] | None:
+    if raw_origin is None:
+        return None
+
+    try:
+        latitude = float(raw_origin["latitude"])
+        longitude = float(raw_origin["longitude"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise EvaluationDataError(
+            f"Evaluation case '{case_id}' has incomplete venue origin."
+        ) from exc
+
+    if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+        raise EvaluationDataError(
+            f"Evaluation case '{case_id}' has invalid venue origin."
+        )
+    return latitude, longitude
 
 
 def _require_boolean(value: Any, case_id: str) -> bool:
@@ -366,6 +462,24 @@ def _compare(
     if expected != actual:
         mismatches.append(
             f"{field_name}: expected {expected!r}, got {actual!r}"
+        )
+
+
+def _compare_venue_trace_reason(
+    mismatches: list[str],
+    result,
+    expected_reason: str,
+) -> None:
+    reasons = [
+        reason
+        for recommendation in result.recommendations
+        for trace in recommendation.venue_filter_trace
+        for reason in trace.reasons
+    ]
+    if expected_reason not in reasons:
+        mismatches.append(
+            "venue_trace_has_rejection_reason: expected "
+            f"{expected_reason!r}, got {reasons!r}"
         )
 
 

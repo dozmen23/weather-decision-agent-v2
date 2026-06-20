@@ -1,5 +1,6 @@
 """Tests for recommendation history persistence."""
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -29,6 +30,10 @@ class RecommendationHistoryRepositoryTests(unittest.TestCase):
             self.assertEqual(len(recent), 1)
             self.assertEqual(recent[0].record_id, "first")
             self.assertIsNone(recent[0].feedback)
+            self.assertEqual(
+                recent[0].recommendations[0].venue_names,
+                ("Demo Park", "Demo Track"),
+            )
 
             updated = repository.update_feedback(
                 "first",
@@ -71,6 +76,38 @@ class RecommendationHistoryRepositoryTests(unittest.TestCase):
             ):
                 repository.update_feedback("missing", FeedbackValue.NEGATIVE)
 
+    def test_old_history_records_without_venue_names_still_load(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            history_path = Path(temporary_directory) / "history.jsonl"
+            record = _record("old-record")
+            payload = {
+                "record_id": record.record_id,
+                "created_at": record.created_at,
+                "city": record.city,
+                "target_date": record.target_date,
+                "status": record.status,
+                "used_safe_fallback": record.used_safe_fallback,
+                "used_generated_candidates": record.used_generated_candidates,
+                "weather": record.weather,
+                "preferences": record.preferences,
+                "recommendations": [
+                    {
+                        "activity_name": "Park Walk",
+                        "activity_type": "walking",
+                        "is_outdoor": True,
+                        "score": 95.0,
+                    }
+                ],
+                "feedback": None,
+                "feedback_note": "",
+            }
+            history_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            repository = RecommendationHistoryRepository(history_path)
+
+            recent = repository.list_recent()
+
+            self.assertEqual(recent[0].recommendations[0].venue_names, ())
+
 
 def _record(record_id: str) -> RecommendationHistoryRecord:
     return RecommendationHistoryRecord(
@@ -89,6 +126,7 @@ def _record(record_id: str) -> RecommendationHistoryRecord:
                 activity_type="walking",
                 is_outdoor=True,
                 score=95.0,
+                venue_names=("Demo Park", "Demo Track"),
             )
         ],
     )

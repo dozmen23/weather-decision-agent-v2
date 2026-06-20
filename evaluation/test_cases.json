@@ -337,6 +337,40 @@
         "verdict": "no_recommendation",
         "required_actions": ["load_safe_alternatives", "stop_no_result"]
       }
+    },
+    {
+      "id": "coordinate-origin-sorts-venue-candidates",
+      "description": "A coordinate-selected origin should recalculate venue distance and keep venue filtering auditable.",
+      "city": "Selected map location",
+      "venue_origin": {
+        "latitude": 41.0255,
+        "longitude": 29.0288
+      },
+      "weather": {
+        "city": "Selected map location",
+        "temperature_celsius": 22,
+        "precipitation_probability_percent": 5,
+        "wind_speed_kmh": 8,
+        "condition": "Clear sky"
+      },
+      "preferences": {
+        "preferred_activity_type": "walking",
+        "prefers_outdoor": true,
+        "min_temperature_celsius": 12,
+        "max_temperature_celsius": 30,
+        "max_precipitation_probability_percent": 40,
+        "max_wind_speed_kmh": 25
+      },
+      "expected": {
+        "status": "completed",
+        "top_activity": "Park Walk",
+        "top_venue": "Demo Sahil Fotoğraf Noktası",
+        "top_venue_distance_km": 0.0,
+        "venue_trace_has_rejection_reason": "Açık/kapalı alan tipi eşleşmedi.",
+        "used_safe_fallback": false,
+        "verdict": "approved",
+        "required_actions": ["load_preferred_candidates"]
+      }
     }
   ]
 }
