@@ -9,7 +9,9 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 - Şehir adı veya doğrudan koordinat üzerinden hava verisi alabilecek servis
   altyapısına sahiptir.
 - Streamlit'te şehir ya da harita modu seçilebilir; harita modunda kullanıcı
-  OpenStreetMap üzerinden bir noktaya tıklayıp aynı öneri akışını çalıştırır.
+  Google Maps üzerinden bir noktaya tıklayıp aynı öneri akışını çalıştırır.
+  Tarayıcı anahtarı ayarlanmamışsa konum seçimi kontrollü olarak demo haritaya
+  düşebilir.
 - Kullanıcının şehir, tarih, aktivite ve konfor tercihlerini değerlendirir.
 - Bütçe, süre, yoğunluk ve rezervasyon istemiyorum tercihlerini filtre olarak
   uygular.
@@ -28,6 +30,8 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
   `VENUE_JSON_PATH` ayarlarıyla mekan kaynağı merkezi olarak seçilebilir.
 - Google Places modunda Nearby Search, haritada seçilen koordinata göre çalışır;
   API key `.env` içindeki `GOOGLE_PLACES_API_KEY` üzerinden okunur.
+- Google Places mekanları Google Maps üzerinde gösterilir, Google Maps kaynak
+  bilgisi ve doğrulanmış Google Maps bağlantısı mekan kartında korunur.
 - Hava ve pratiklik filtrelerini teknik sayı girişi yerine doğal seviye
   seçenekleriyle toplar.
 - Yedi günlük tahmini kartlı gün seçiciyle gösterir.
@@ -104,6 +108,20 @@ Gerçek LLM entegrasyonu için `.env.example` dosyasını `.env` olarak
 kopyalayıp ayarları doldurun. `.env` dosyası Git tarafından takip edilmez.
 Mekan önerileri varsayılan olarak kontrollü JSON demo kataloğunu kullanır;
 farklı bir JSON katalog için `VENUE_JSON_PATH` ayarlanabilir.
+
+Canlı Google mekanları ve Google haritası için iki ayrı anahtar kullanılır:
+
+```dotenv
+VENUE_PROVIDER=google_places
+GOOGLE_PLACES_API_KEY=server_side_places_key
+GOOGLE_MAPS_BROWSER_API_KEY=referrer_restricted_browser_key
+```
+
+`GOOGLE_PLACES_API_KEY` sunucu tarafında kalır. Harita için kullanılan
+`GOOGLE_MAPS_BROWSER_API_KEY` Google Cloud'da yalnızca Maps JavaScript API'ye
+ve uygulamanın HTTP referrer adreslerine sınırlandırılmalıdır. Yerel geliştirme
+için referrer listesine `http://localhost:8501` ve
+`http://localhost:8501/*` eklenebilir.
 
 Web arayüzünü başlatmak için:
 

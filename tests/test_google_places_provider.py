@@ -52,6 +52,13 @@ class GooglePlacesProviderTests(unittest.TestCase):
                     "types": ["park", "point_of_interest"],
                     "priceLevel": "PRICE_LEVEL_FREE",
                     "businessStatus": "OPERATIONAL",
+                    "googleMapsUri": "https://maps.google.com/example",
+                    "attributions": [
+                        {
+                            "provider": "Example Provider",
+                            "providerUri": "https://example.com",
+                        }
+                    ],
                 }
             ]
         )
@@ -78,6 +85,15 @@ class GooglePlacesProviderTests(unittest.TestCase):
         self.assertEqual(venues[0].source, "google_places")
         self.assertEqual(venues[0].cost_level, CostLevel.FREE)
         self.assertEqual(venues[0].transport_ease, TransportEase.EASY)
+        self.assertEqual(venues[0].provider_venue_id, "place-1")
+        self.assertEqual(
+            venues[0].google_maps_uri,
+            "https://maps.google.com/example",
+        )
+        self.assertEqual(
+            venues[0].attributions[0].provider,
+            "Example Provider",
+        )
 
     def test_permanently_closed_places_are_skipped(self) -> None:
         provider = GooglePlacesVenueProvider(

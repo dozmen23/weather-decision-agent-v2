@@ -40,6 +40,10 @@ from app.services.recommendation_service import (
 )
 from app.services.venue_provider_factory import inspect_venue_provider
 from app.services.weather_service import WeatherService, WeatherServiceError
+from app.ui.google_maps_component import (
+    google_map,
+    load_google_maps_settings,
+)
 from evaluation.evaluation_runner import EvaluationDataError, EvaluationRunner
 
 
@@ -503,16 +507,23 @@ def format_forecast_card_label(weather, today: date | None = None) -> str:
 def _extract_clicked_coordinates(
     map_output: dict[str, Any] | None,
 ) -> tuple[float, float] | None:
-    """Return latitude/longitude from a Streamlit Folium click payload."""
+    """Return latitude/longitude from Google Maps or Folium output."""
     if not map_output:
         return None
 
-    click_payload = map_output.get("last_clicked")
+    if "latitude" in map_output or "longitude" in map_output:
+        click_payload = map_output
+        latitude_key = "latitude"
+        longitude_key = "longitude"
+    else:
+        click_payload = map_output.get("last_clicked")
+        latitude_key = "lat"
+        longitude_key = "lng"
     if not isinstance(click_payload, dict):
         return None
 
-    latitude = click_payload.get("lat")
-    longitude = click_payload.get("lng")
+    latitude = click_payload.get(latitude_key)
+    longitude = click_payload.get(longitude_key)
     if latitude is None or longitude is None:
         return None
 
@@ -899,15 +910,22 @@ def _render_location_map_picker() -> tuple[float, float]:
     if st.session_state.get("show_location_picker_dialog"):
         _render_location_picker_dialog()
 
-    if folium is None or st_folium is None:
+    maps_settings = load_google_maps_settings()
+    if (
+        not maps_settings.browser_api_key
+        and (folium is None or st_folium is None)
+    ):
         st.info(
-            "Gerçek harita seçimi için streamlit-folium kurulmalı. "
+            "Google Maps tarayıcı anahtarı veya streamlit-folium gerekli. "
             "Şimdilik koordinatı elle girebilirsin."
         )
 
     with st.expander(
         "Koordinatı elle düzelt",
-        expanded=folium is None or st_folium is None,
+        expanded=(
+            not maps_settings.browser_api_key
+            and (folium is None or st_folium is None)
+        ),
     ):
         latitude = st.number_input(
             "Enlem",
@@ -947,9 +965,32 @@ def _render_location_picker_dialog() -> None:
         "Seçim yapılınca pencere kapanır ve hava tahmini bu noktadan alınır."
     )
 
+    maps_settings = load_google_maps_settings()
+    if maps_settings.browser_api_key:
+        map_output = google_map(
+            api_key=maps_settings.browser_api_key,
+            center=(latitude, longitude),
+            zoom=DEFAULT_MAP_ZOOM,
+            origin=(latitude, longitude),
+            interactive=True,
+            height=560,
+            key="google_location_picker_dialog_map",
+        )
+        clicked_coordinates = _extract_clicked_coordinates(map_output)
+        if clicked_coordinates is not None:
+            _save_map_selection(*clicked_coordinates)
+        st.caption(
+            f"Şu an seçili: {_format_coordinate_label(latitude, longitude)}"
+        )
+        if st.button("Vazgeç", use_container_width=True):
+            st.session_state["show_location_picker_dialog"] = False
+            st.rerun()
+        return
+
     if folium is None or st_folium is None:
         st.warning(
-            "Harita seçimi için streamlit-folium kurulmalı. "
+            "Google Maps tarayıcı anahtarı ayarlanmamış ve fallback harita "
+            "kullanılamıyor. "
             "Koordinatı sidebar'dan elle girebilirsin."
         )
         if st.button("Kapat", use_container_width=True):
@@ -982,17 +1023,21 @@ def _render_location_picker_dialog() -> None:
     )
     clicked_coordinates = _extract_clicked_coordinates(map_output)
     if clicked_coordinates is not None:
-        latitude, longitude = clicked_coordinates
-        st.session_state["selected_map_latitude"] = latitude
-        st.session_state["selected_map_longitude"] = longitude
-        st.session_state["show_location_picker_dialog"] = False
-        st.toast("Konum seçildi.")
-        st.rerun()
+        _save_map_selection(*clicked_coordinates)
 
     st.caption(f"Şu an seçili: {_format_coordinate_label(latitude, longitude)}")
     if st.button("Vazgeç", use_container_width=True):
         st.session_state["show_location_picker_dialog"] = False
         st.rerun()
+
+
+def _save_map_selection(latitude: float, longitude: float) -> None:
+    """Persist a clicked map coordinate and close the picker dialog."""
+    st.session_state["selected_map_latitude"] = latitude
+    st.session_state["selected_map_longitude"] = longitude
+    st.session_state["show_location_picker_dialog"] = False
+    st.toast("Konum seçildi.")
+    st.rerun()
 
 
 def _render_city_forecast_selector(city: str) -> date:
@@ -1129,7 +1174,7 @@ def _render_empty_state(developer_mode: bool) -> None:
     if developer_mode:
         columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
         columns[1].metric("Evaluation kontrolleri", "6")
-        columns[2].metric("Otomatik test", "152 başarılı")
+        columns[2].metric("Otomatik test", "153 başarılı")
         _render_venue_provider_status()
     else:
         columns[0].metric("Görünüm", "Sade")
@@ -1387,6 +1432,16 @@ def _render_venue_candidates(
     key_prefix: str,
 ) -> None:
     st.markdown("**Mekan adayları**")
+    google_venues = [
+        venue for venue in venues if venue.source == "google_places"
+    ]
+    if google_venues:
+        st.markdown(
+            '<div translate="no" style="color:#5e5e5e;font-size:1rem;'
+            'letter-spacing:normal;white-space:nowrap;margin-bottom:0.5rem;">'
+            "Google Maps</div>",
+            unsafe_allow_html=True,
+        )
     for venue in venues:
         st.markdown(f"**{venue.name}**")
         st.caption(
@@ -1403,11 +1458,55 @@ def _render_venue_candidates(
                 f"source: {venue.source} | "
                 f"lat/lon: {venue.latitude:.4f}, {venue.longitude:.4f}"
             )
+        if venue.google_maps_uri:
+            st.link_button(
+                "Google Maps'te aç",
+                venue.google_maps_uri,
+                icon=":material/map:",
+            )
+        for attribution in venue.attributions:
+            if attribution.provider_uri:
+                st.markdown(
+                    f"Kaynak: [{attribution.provider}]"
+                    f"({attribution.provider_uri})"
+                )
+            else:
+                st.caption(f"Kaynak: {attribution.provider}")
     with st.expander("Mekanları haritada gör", expanded=False):
         _render_venue_map(venues, key_prefix)
 
 
 def _render_venue_map(venues, key_prefix: str) -> None:
+    google_venues = [
+        venue for venue in venues if venue.source == "google_places"
+    ]
+    if google_venues:
+        maps_settings = load_google_maps_settings()
+        if not maps_settings.browser_api_key:
+            st.info(
+                "Google mekanlarını haritada göstermek için "
+                "GOOGLE_MAPS_BROWSER_API_KEY ayarlanmalı."
+            )
+            return
+
+        origin = _get_selected_map_origin()
+        coordinates = [
+            (venue.latitude, venue.longitude) for venue in google_venues
+        ]
+        if origin is not None:
+            coordinates.append(origin)
+        google_map(
+            api_key=maps_settings.browser_api_key,
+            center=calculate_map_center(coordinates),
+            zoom=12,
+            markers=_google_venue_marker_payload(google_venues),
+            origin=origin,
+            interactive=False,
+            height=320,
+            key=_venue_map_key(google_venues, f"google_{key_prefix}"),
+        )
+        return
+
     if folium is None or st_folium is None:
         st.info("Mekan haritası için streamlit-folium kurulmalı.")
         return
@@ -1464,6 +1563,19 @@ def _render_venue_map(venues, key_prefix: str) -> None:
         use_container_width=True,
         key=_venue_map_key(venues, key_prefix),
     )
+
+
+def _google_venue_marker_payload(venues) -> list[dict[str, object]]:
+    """Return the minimal trusted venue payload used by the map component."""
+    return [
+        {
+            "name": venue.name,
+            "latitude": venue.latitude,
+            "longitude": venue.longitude,
+            "google_maps_uri": venue.google_maps_uri,
+        }
+        for venue in venues
+    ]
 
 
 def _get_selected_map_origin() -> tuple[float, float] | None:

@@ -6,6 +6,14 @@ from app.models.activity import CostLevel, TransportEase
 
 
 @dataclass(frozen=True)
+class VenueAttribution:
+    """Third-party attribution returned by a trusted venue provider."""
+
+    provider: str
+    provider_uri: str = ""
+
+
+@dataclass(frozen=True)
 class Venue:
     """Trusted venue candidate from a structured source."""
 
@@ -21,6 +29,9 @@ class Venue:
     requires_reservation: bool
     source: str
     tags: tuple[str, ...] = field(default_factory=tuple)
+    provider_venue_id: str = ""
+    google_maps_uri: str = ""
+    attributions: tuple[VenueAttribution, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)

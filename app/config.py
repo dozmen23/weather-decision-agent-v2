@@ -107,6 +107,27 @@ class VenueProviderSettings:
         )
 
 
+@dataclass(frozen=True)
+class GoogleMapsSettings:
+    """Browser-safe configuration for the Google Maps UI component."""
+
+    browser_api_key: str = field(default="", repr=False)
+
+    @classmethod
+    def from_environment(
+        cls,
+        environment: Mapping[str, str] | None = None,
+    ) -> "GoogleMapsSettings":
+        """Load the referrer-restricted browser key when configured."""
+        source = environment if environment is not None else os.environ
+        return cls(
+            browser_api_key=source.get(
+                "GOOGLE_MAPS_BROWSER_API_KEY",
+                "",
+            ).strip()
+        )
+
+
 def _parse_boolean(value: str) -> bool:
     normalized = value.strip().casefold()
     if normalized in {"true", "1", "yes", "on"}:

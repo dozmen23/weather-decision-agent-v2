@@ -27,6 +27,7 @@ from app.ui.streamlit_app import (
     _extract_clicked_coordinates,
     _format_coordinate_label,
     _format_user_recommendation_reason,
+    _google_venue_marker_payload,
     _venue_map_key,
     _select_user_explanation,
     build_recommendation_service,
@@ -363,6 +364,11 @@ class UIHelperTests(unittest.TestCase):
 
         self.assertEqual(coordinates, (40.9903, 29.029))
 
+        google_coordinates = _extract_clicked_coordinates(
+            {"latitude": 41.0123, "longitude": 28.9765}
+        )
+        self.assertEqual(google_coordinates, (41.0123, 28.9765))
+
     def test_invalid_map_click_payload_is_ignored(self) -> None:
         self.assertIsNone(_extract_clicked_coordinates(None))
         self.assertIsNone(_extract_clicked_coordinates({}))
@@ -440,6 +446,17 @@ class UIHelperTests(unittest.TestCase):
         self.assertNotEqual(
             _venue_map_key([venue], "recommendation_1"),
             _venue_map_key([venue], "recommendation_2"),
+        )
+        self.assertEqual(
+            _google_venue_marker_payload([venue]),
+            [
+                {
+                    "name": "Demo AVM Yürüyüş Rotası",
+                    "latitude": 41.0632,
+                    "longitude": 29.0123,
+                    "google_maps_uri": "",
+                }
+            ],
         )
 
     def test_forecast_date_bounds_cover_seven_days(self) -> None:

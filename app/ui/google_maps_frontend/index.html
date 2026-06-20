@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      html,
+      body,
+      #map {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        overflow: hidden;
+        background: #f7f8fa;
+        font-family: Arial, sans-serif;
+      }
+
+      #map {
+        border-radius: 8px;
+      }
+
+      #status {
+        display: none;
+        box-sizing: border-box;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        padding: 24px;
+        color: #444746;
+        text-align: center;
+        background: #f7f8fa;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="map" aria-label="Google Maps"></div>
+    <div id="status" role="status"></div>
+    <script>
+      let map;
+      let mapClickListener;
+      let renderedMarkers = [];
+      let selectionMarker;
+      let googleMapsPromise;
+
+      function sendMessage(type, payload = {}) {
+        window.parent.postMessage(
+          {
+            isStreamlitMessage: true,
+            type,
+            ...payload,
+          },
+          "*",
+        );
+      }
+
+      function setFrameHeight(height) {
+        sendMessage("streamlit:setFrameHeight", { height });
+      }
+
+      function setComponentValue(value) {
+        sendMessage("streamlit:setComponentValue", { value });
+      }
+
+      function showStatus(message) {
+        document.getElementById("map").style.display = "none";
+        const status = document.getElementById("status");
+        status.textContent = message;
+        status.style.display = "flex";
+      }
+
+      function showMap() {
+        document.getElementById("status").style.display = "none";
+        document.getElementById("map").style.display = "block";
+      }
+
+      function loadGoogleMaps(apiKey) {
+        if (window.google && window.google.maps) {
+          return Promise.resolve();
+        }
+        if (googleMapsPromise) {
+          return googleMapsPromise;
+        }
+
+        googleMapsPromise = new Promise((resolve, reject) => {
+          window.gm_authFailure = () => {
+            reject(new Error("Google Maps anahtarı doğrulanamadı."));
+          };
+          const callbackName = "__weatherGoogleMapsReady";
+          window[callbackName] = () => {
+            delete window[callbackName];
+            resolve();
+          };
+          const script = document.createElement("script");
+          script.src =
+            "https://maps.googleapis.com/maps/api/js?loading=async&v=weekly" +
+            "&auth_referrer_policy=origin&key=" +
+            encodeURIComponent(apiKey) +
+            "&callback=" +
+            callbackName;
+          script.async = true;
+          script.onerror = () => {
+            reject(new Error("Google Maps yüklenemedi."));
+          };
+          document.head.appendChild(script);
+        });
+        return googleMapsPromise;
+      }
+
+      function escapeHtml(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function clearMarkers() {
+        renderedMarkers.forEach((marker) => marker.setMap(null));
+        renderedMarkers = [];
+        if (selectionMarker) {
+          selectionMarker.setMap(null);
+          selectionMarker = null;
+        }
+      }
+
+      function addSelectionMarker(position) {
+        if (selectionMarker) {
+          selectionMarker.setPosition(position);
+          return;
+        }
+        selectionMarker = new google.maps.Marker({
+          map,
+          position,
+          title: "Seçtiğin nokta",
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            fillColor: "#2563eb",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 3,
+            scale: 9,
+          },
+        });
+      }
+
+      function addVenueMarker(markerData, index, bounds) {
+        const position = {
+          lat: Number(markerData.latitude),
+          lng: Number(markerData.longitude),
+        };
+        const marker = new google.maps.Marker({
+          map,
+          position,
+          label: String(index + 1),
+          title: markerData.name,
+        });
+        const link = markerData.google_maps_uri
+          ? `<br><a href="${escapeHtml(markerData.google_maps_uri)}" target="_blank" rel="noopener noreferrer">Google Maps'te aç</a>`
+          : "";
+        const infoWindow = new google.maps.InfoWindow({
+          content: `<strong>${escapeHtml(markerData.name)}</strong>${link}`,
+        });
+        marker.addListener("click", () => infoWindow.open({ map, anchor: marker }));
+        renderedMarkers.push(marker);
+        bounds.extend(position);
+      }
+
+      function renderMap(args) {
+        const height = Number(args.height || 320);
+        document.body.style.height = `${height}px`;
+        setFrameHeight(height);
+
+        if (!args.api_key) {
+          showStatus("Google Maps tarayıcı anahtarı ayarlanmamış.");
+          return;
+        }
+
+        loadGoogleMaps(args.api_key)
+          .then(() => {
+            showMap();
+            const center = {
+              lat: Number(args.center.latitude),
+              lng: Number(args.center.longitude),
+            };
+            if (!map) {
+              map = new google.maps.Map(document.getElementById("map"), {
+                center,
+                zoom: Number(args.zoom || 12),
+                clickableIcons: true,
+                fullscreenControl: true,
+                mapTypeControl: false,
+                streetViewControl: false,
+              });
+            } else {
+              map.setCenter(center);
+              map.setZoom(Number(args.zoom || 12));
+            }
+
+            clearMarkers();
+            const bounds = new google.maps.LatLngBounds();
+            const markers = Array.isArray(args.markers) ? args.markers : [];
+            markers.forEach((markerData, index) => {
+              addVenueMarker(markerData, index, bounds);
+            });
+
+            if (args.origin) {
+              const origin = {
+                lat: Number(args.origin.latitude),
+                lng: Number(args.origin.longitude),
+              };
+              addSelectionMarker(origin);
+              bounds.extend(origin);
+            }
+
+            if (markers.length > 0) {
+              map.fitBounds(bounds, 44);
+              google.maps.event.addListenerOnce(map, "idle", () => {
+                if (map.getZoom() > 16) {
+                  map.setZoom(16);
+                }
+              });
+            }
+
+            if (mapClickListener) {
+              mapClickListener.remove();
+              mapClickListener = null;
+            }
+            if (args.interactive) {
+              mapClickListener = map.addListener("click", (event) => {
+                const position = event.latLng;
+                addSelectionMarker(position);
+                setComponentValue({
+                  latitude: position.lat(),
+                  longitude: position.lng(),
+                });
+              });
+            }
+          })
+          .catch((error) => showStatus(error.message));
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.data.type === "streamlit:render") {
+          renderMap(event.data.args);
+        }
+      });
+
+      sendMessage("streamlit:componentReady", { apiVersion: 1 });
+      setFrameHeight(320);
+    </script>
+  </body>
+</html>

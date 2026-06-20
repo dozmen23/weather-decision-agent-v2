@@ -16,8 +16,10 @@ logic makes the decision, and the LLM may only explain or review it.
 This step is now supported by `WeatherService` coordinate methods.
 Streamlit also includes a map mode backed by `streamlit-folium`; when the user
 clicks a point on the map, the same recommendation flow runs without city
-geocoding. If the map dependency is unavailable, the UI falls back to manual
-latitude/longitude input instead of breaking.
+geocoding. The primary map is now a local Streamlit component backed by Google
+Maps JavaScript API. The Folium map remains only as a coordinate-selection
+fallback when the browser key is absent; Google Places results are never drawn
+on that fallback map.
 
 ## Step 2: Venue Candidate Source
 
@@ -65,6 +67,9 @@ The Google Places provider maps activity categories to supported Google place
 types, requests a limited field mask, and recalculates distance from the
 selected origin. The LLM still cannot create venues, alter distance values, or
 bypass venue filters.
+The provider also preserves the Google Maps URI and third-party attribution
+objects. Google Places results are displayed on Google Maps, while the user
+mode keeps visible Google Maps attribution and direct verified links.
 Automated fixtures cover every mapped activity category, Google source
 attribution, deterministic sorting and filtering, malformed place isolation,
 quota error handling, and safe continuation without venues when the live

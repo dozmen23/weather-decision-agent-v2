@@ -22,6 +22,8 @@
 - Google Places live venue provider wiring for map-origin Nearby Search,
   including API key configuration, type mapping, field masks, and normalized
   venue output.
+- Google Maps JavaScript component for point selection and compliant display of
+  Google Places markers, using a separate referrer-restricted browser key.
 - Google Places evaluation fixtures verify activity-to-place-type coverage,
   trusted source attribution, distance sorting, preference filtering, malformed
   result isolation, and graceful degradation during provider failures.

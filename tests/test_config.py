@@ -2,7 +2,12 @@
 
 import unittest
 
-from app.config import ConfigurationError, LLMSettings, VenueProviderSettings
+from app.config import (
+    ConfigurationError,
+    GoogleMapsSettings,
+    LLMSettings,
+    VenueProviderSettings,
+)
 
 
 class LLMSettingsTests(unittest.TestCase):
@@ -85,6 +90,18 @@ class VenueProviderSettingsTests(unittest.TestCase):
     def test_invalid_venue_provider_is_rejected(self) -> None:
         with self.assertRaisesRegex(ConfigurationError, "VENUE_PROVIDER"):
             VenueProviderSettings.from_environment({"VENUE_PROVIDER": "llm"})
+
+
+class GoogleMapsSettingsTests(unittest.TestCase):
+    def test_browser_key_is_optional_and_hidden_from_repr(self) -> None:
+        disabled = GoogleMapsSettings.from_environment({})
+        enabled = GoogleMapsSettings.from_environment(
+            {"GOOGLE_MAPS_BROWSER_API_KEY": "browser-secret"}
+        )
+
+        self.assertEqual(disabled.browser_api_key, "")
+        self.assertEqual(enabled.browser_api_key, "browser-secret")
+        self.assertNotIn("browser-secret", repr(enabled))
 
 
 if __name__ == "__main__":

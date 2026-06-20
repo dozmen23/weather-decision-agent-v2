@@ -8,7 +8,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from app.models.activity import CostLevel, TransportEase
-from app.models.venue import Venue
+from app.models.venue import Venue, VenueAttribution
 from app.services.venue_providers.json_provider import VenueCatalogError
 
 
@@ -20,7 +20,9 @@ GOOGLE_PLACES_FIELD_MASK = (
     "places.types,"
     "places.primaryType,"
     "places.priceLevel,"
-    "places.businessStatus"
+    "places.businessStatus,"
+    "places.googleMapsUri,"
+    "places.attributions"
 )
 
 OUTDOOR_PLACE_TYPES = {
@@ -304,6 +306,9 @@ def _venue_from_google_place(
         requires_reservation=False,
         source="google_places",
         tags=types,
+        provider_venue_id=str(raw_place.get("id", "")).strip(),
+        google_maps_uri=str(raw_place.get("googleMapsUri", "")).strip(),
+        attributions=_place_attributions(raw_place),
     )
 
 
@@ -341,6 +346,31 @@ def _place_types(raw_place: dict[str, Any]) -> tuple[str, ...]:
         for place_type in raw_types
         if str(place_type).strip()
     )
+
+
+def _place_attributions(
+    raw_place: dict[str, Any],
+) -> tuple[VenueAttribution, ...]:
+    raw_attributions = raw_place.get("attributions", [])
+    if not isinstance(raw_attributions, list):
+        return ()
+
+    attributions = []
+    for raw_attribution in raw_attributions:
+        if not isinstance(raw_attribution, dict):
+            continue
+        provider = str(raw_attribution.get("provider", "")).strip()
+        if not provider:
+            continue
+        attributions.append(
+            VenueAttribution(
+                provider=provider,
+                provider_uri=str(
+                    raw_attribution.get("providerUri", "")
+                ).strip(),
+            )
+        )
+    return tuple(attributions)
 
 
 def _is_usable_google_place(raw_place: dict[str, Any]) -> bool:
