@@ -19,6 +19,169 @@ tags:
 Weather Decision Agent, hava durumu ve kullanıcı tercihlerini analiz ederek
 uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 
+## Final Project Report
+
+**Team:** Deniz Özmen (2203032) · Ömer Şahin (2104101)<br>
+**Live application:** [Weather Decision Agent](https://dozmen23-weather-decision-agent.hf.space/)<br>
+**Downloadable report:** [Weather Decision Agent Final Project Report](docs/Weather_Decision_Agent_Final_Report.docx)
+
+### 1. Motivation
+
+Modern weather applications usually show raw values, but they still leave the
+final decision to the user. The Weather Decision Agent was proposed to turn
+temperature, rain and wind data into a simple answer: **What can I comfortably
+do today?**
+
+### 2. Problem Definition
+
+This is a decision-making problem under uncertainty. Weather conditions change,
+several variables must be considered together, and two users may react
+differently to the same forecast. The project therefore combines decision
+support, context-aware recommendation and agentic AI concepts.
+
+### 3. Project Overview
+
+The original plan was a Python and Streamlit application that would collect
+weather data, read user preferences, evaluate a catalog of activities and return
+ranked recommendations with short explanations.
+
+The first technical design expected OpenWeatherMap and a GPT-4o mini based
+decision agent. During development, this structure was deliberately changed to
+make the system safer, easier to test and less dependent on the language model.
+
+### 4. Initial System Workflow
+
+The planned workflow started with location and preference inputs. Weather data
+would then be normalized, combined with activity options and sent to the
+decision agent. The final output would contain ranked activities and a short
+reason for each recommendation.
+
+### 5. Team Responsibilities
+
+Deniz Özmen focused on the decision workflow, recommendation rules, LLM
+integration and the preference experience. Ömer Şahin focused on weather data
+collection, normalization, structured activity data and connecting the service
+layer to the Streamlit output.
+
+### 6. From Initial Plan to Final Product
+
+The project kept its original goal, but the implementation became more
+controlled and much closer to a real product.
+
+| Area | Initial plan | Final implementation |
+| --- | --- | --- |
+| Weather | OpenWeatherMap | Open-Meteo and 7-day forecast |
+| Main decision | LLM-based ranking | Deterministic rules and scoring |
+| LLM role | Choose activities | Explain and review only |
+| Location | City input | City or Google Maps selection |
+| Venues | Static activity options | Verified Google Places results |
+| Interface | Single Streamlit screen | User Mode and Developer Mode |
+| Deployment | Local Streamlit app | Docker Space on Hugging Face |
+
+### 7. Final Implementation Update
+
+The final version is a hybrid decision system. Weather safety, scoring and
+fallback rules are deterministic. The LLM cannot change a safety rule or score;
+it only turns the result into a natural explanation and acts as a second
+reviewer.
+
+#### 7.1 Weather Risk and Scoring
+
+Rain, wind, temperature and weather condition are combined into four
+user-friendly risk labels: comfortable, cautious, risky and very risky.
+Recommendations also keep a clear score breakdown for weather safety,
+preference match, comfort and practicality.
+
+#### 7.2 Smarter Fallback Logic
+
+The system first searches for an exact activity match. If the weather makes
+that option unsafe, it looks for a close indoor alternative instead of
+returning a random activity. For example, an outdoor walk can become an indoor
+track or mall walk.
+
+### 8. User Experience
+
+User Mode keeps the screen simple: seven forecast cards, understandable
+preference controls and a short explanation written in everyday language.
+Developer Mode is kept separate and shows the trace, scoring details, raw
+weather data and evaluator output when technical inspection is needed.
+
+![Final User Mode with seven-day forecast cards and simple preferences](docs/report_assets/final_home.png)
+
+*Figure 1. Final User Mode with seven-day forecast cards and simple preferences.*
+
+### 9. Map and Real Venue Integration
+
+Users can enter a city or select any point directly on Google Maps. The selected
+coordinates are used both for the weather forecast and for nearby venue
+searches. Real venue results come from Google Places; the LLM is not allowed to
+invent a location.
+
+![Google Maps location picker](docs/report_assets/final_map.png)
+
+*Figure 2. Google Maps location picker running in the deployed application.*
+
+### 10. Recommendation Output
+
+The result explains the weather first, then shows the selected activity, why it
+fits and what the user should pay attention to. When available, verified nearby
+venues are displayed with distance, accessibility and a direct Google Maps
+link.
+
+![Recommendation with friendly explanation and verified venues](docs/report_assets/final_recommendation.png)
+
+*Figure 3. Final recommendation with a friendly explanation and verified venue results.*
+
+### 11. Evaluation and Safety
+
+The project includes automated tests and reusable evaluation scenarios for
+thunderstorms, high wind, extreme temperature, light rain, exact preference
+matches and cases where no safe activity exists. The current suite contains
+**159 passing tests**.
+
+LLM safety checks also cover invented activities, changed scores and unsafe
+suggestions. If the model output is invalid, the deterministic recommendation
+remains the source of truth.
+
+### 12. Deployment
+
+The application is packaged with Docker and deployed publicly on Hugging Face
+Spaces. GitHub Actions automatically synchronizes every push to the `main`
+branch, so approved code changes can reach the live demo without a manual
+upload.
+
+![Hugging Face container logs](docs/report_assets/deployment_huggingface.png)
+
+*Figure 4. Hugging Face container logs showing the Streamlit service on port 7860.*
+
+### 13. Final Architecture
+
+In simple terms, the user chooses a place and preferences, Open-Meteo provides
+the forecast, the deterministic agent selects safe activities, Google Places
+returns real venues and the LLM explains the already-approved result. Streamlit
+brings these parts together in one interface.
+
+```text
+User preferences and location
+            ↓
+Open-Meteo weather forecast
+            ↓
+Deterministic safety, fallback and scoring
+            ↓
+Google Places verified venue results
+            ↓
+LLM-assisted explanation and second review
+            ↓
+Streamlit User Mode / Developer Mode
+```
+
+### 14. Conclusion
+
+The final Weather Decision Agent goes beyond displaying weather. It turns a
+forecast into a practical plan while keeping safety decisions transparent and
+testable. The result is a small but complete agentic AI product: useful for the
+user, inspectable for the developer and available through a public demo link.
+
 ## Mevcut Kabiliyetler
 
 - Open-Meteo üzerinden güncel hava durumu ve yedi günlük tahmin verisi alır.
@@ -110,9 +273,9 @@ Temel domain modelleri:
 - `Activity`: Önerilebilecek aktivite adayı
 - `Recommendation`: Agent tarafından üretilecek öneri çıktısı
 
-Yakın vadeli geliştirme yönü:
+Güncel durum ve yakın vadeli geliştirme yönü:
 
-- Hugging Face Spaces üzerinde herkese açık Docker demosunu yayınlamak
+- Hugging Face Spaces üzerinde herkese açık Docker demosu yayındadır
 - canlı kullanım geri bildirimlerine göre aktivite-mekan eşleşmelerini
   iyileştirmek
 
