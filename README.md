@@ -6,7 +6,7 @@ colorTo: red
 sdk: docker
 app_port: 7860
 fullWidth: true
-short_description: Weather-aware deterministic activity and venue recommendations.
+short_description: Weather-aware activity and venue recommendations.
 tags:
   - streamlit
   - agents
