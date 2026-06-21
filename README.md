@@ -25,6 +25,11 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
 **Live application:** [Weather Decision Agent](https://dozmen23-weather-decision-agent.hf.space/)<br>
 **Downloadable report:** [Weather Decision Agent Final Project Report](docs/Weather_Decision_Agent_Final_Report.docx)
 
+### Additional Reports
+
+- [Executive Summary](docs/executive_summary.md)
+- [Practitioner Notes](docs/practitioner_notes.md)
+
 ### 1. Motivation
 
 Modern weather applications usually show raw values, but they still leave the
