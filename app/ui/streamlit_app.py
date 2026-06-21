@@ -32,6 +32,7 @@ from app.models.recommendation_history import (
 )
 from app.models.user_preferences import UserPreferences
 from app.services.activity_service import ActivityCatalogError, ActivityService
+from app.services.geocoding_service import reverse_geocode_label
 from app.services.history_service import (
     RecommendationHistoryError,
     RecommendationHistoryRepository,
@@ -304,15 +305,29 @@ def main() -> None:
             weather_tool=form_values["weather_tool"],
         )
 
+        venue_origin = form_values["venue_origin"]
+        if venue_origin is None:
+            venue_origin = _resolve_city_origin(form_values["city"])
+
+        # When a specific activity is chosen, the slider counts places for that
+        # one activity. When it is left open ("Fark etmez"), the slider counts
+        # distinct activities, each with that many places.
+        slider_count = form_values["recommendation_limit"]
+        has_specific_activity = bool(
+            preferences.preferred_activity_type.strip()
+        )
+        activity_count = 1 if has_specific_activity else slider_count
+
         with st.spinner(
             "Hava verisi alınıyor ve agent karar planını çalıştırıyor..."
         ):
             result = service.recommend(
                 city=form_values["city"],
                 preferences=preferences,
-                recommendation_limit=form_values["recommendation_limit"],
+                recommendation_limit=activity_count,
                 target_date=form_values["target_date"],
-                venue_origin=form_values["venue_origin"],
+                venue_origin=venue_origin,
+                venue_limit=slider_count,
             )
     except (
         ActivityCatalogError,
@@ -466,6 +481,30 @@ def get_sidebar_forecast(city: str):
 
 
 @st.cache_data(ttl=600, show_spinner=False)
+def _resolve_city_origin(city: str) -> tuple[float, float] | None:
+    """Geocode a city name so venue search has a nearby origin point.
+
+    Returns None when geocoding fails so recommendations still work without
+    live venues.
+    """
+    if not city or len(city.strip()) < 2:
+        return None
+    try:
+        return WeatherService().resolve_coordinates(city)
+    except WeatherServiceError:
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _resolve_place_label(latitude: float, longitude: float) -> str | None:
+    """Reverse-geocode picked coordinates to a district/city label.
+
+    Returns None on any failure so the UI falls back to raw coordinates.
+    """
+    return reverse_geocode_label(latitude, longitude)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def get_sidebar_forecast_for_coordinates(
     latitude: float,
     longitude: float,
@@ -604,6 +643,8 @@ def format_activity_name(activity_name: str) -> str:
 
 def format_activity_type(activity_type: str) -> str:
     """Return a Turkish display label for an activity type."""
+    if not activity_type or not activity_type.strip():
+        return "Fark etmez (bana öner)"
     return ACTIVITY_TYPE_LABELS.get(activity_type, activity_type)
 
 
@@ -807,31 +848,49 @@ def _render_preference_form(
             location_label = city.strip()
             weather_tool = None
             venue_origin = None
+            # In city mode the origin is the city centre, not the user, so any
+            # venue distance is not meaningful and must stay hidden.
+            st.session_state["origin_is_user_location"] = False
             target_date = _render_city_forecast_selector(city)
         else:
-            location_label = st.text_input(
-                "Konum adı",
-                value="Seçilen konum",
+            location_label_input = st.text_input(
+                "Konum adı (boş bırakırsan seçtiğin semt yazılır)",
+                value="",
+                placeholder="Örn. Kadıköy",
             )
             latitude, longitude = _render_location_map_picker()
+            resolved_place_label = _resolve_place_label(latitude, longitude)
+            # Use the typed name when provided, otherwise the reverse-geocoded
+            # district/city, and only then the generic fallback.
+            location_label = (
+                location_label_input.strip()
+                or resolved_place_label
+                or "Seçilen konum"
+            )
             weather_tool = CoordinateWeatherTool(
                 latitude,
                 longitude,
-                location_label.strip() or "Seçilen konum",
+                location_label,
             )
             venue_origin = (latitude, longitude)
+            # The user picked this point, so venue distances are real.
+            st.session_state["origin_is_user_location"] = True
             target_date = _render_coordinate_forecast_selector(
                 latitude,
                 longitude,
-                location_label.strip() or "Seçilen konum",
+                location_label,
             )
 
         with st.form("recommendation_form"):
             preferred_activity_type = st.selectbox(
                 "Aktivite",
-                options=activity_types,
-                index=_default_activity_index(activity_types),
+                options=["", *activity_types],
+                index=0,
                 format_func=format_activity_type,
+                help=(
+                    "Aklında bir şey yoksa boş bırak; hava ve konuma göre en "
+                    "uygun aktiviteyi ben seçerim."
+                ),
             )
             setting = st.radio(
                 "Ortam",
@@ -961,6 +1020,12 @@ def _render_location_map_picker() -> tuple[float, float]:
 
     with st.container(border=True):
         st.markdown("**Seçilen nokta**")
+        place_label = _resolve_place_label(latitude, longitude)
+        if place_label:
+            st.markdown(
+                f'<div class="picked-place">{escape(place_label)}</div>',
+                unsafe_allow_html=True,
+            )
         st.caption(_format_coordinate_label(latitude, longitude))
         st.button(
             "Haritada seç",
@@ -1533,7 +1598,14 @@ def _render_venue_candidates(
     developer_mode: bool,
     key_prefix: str,
 ) -> None:
-    st.markdown('<div class="venue-title">Yakındaki mekanlar</div>', unsafe_allow_html=True)
+    # Distances are only meaningful when the user picked their own location.
+    show_distance = bool(
+        st.session_state.get("origin_is_user_location", False)
+    )
+    st.markdown(
+        '<div class="venue-title">Yakındaki mekanlar</div>',
+        unsafe_allow_html=True,
+    )
     google_venues = [
         venue for venue in venues if venue.source == "google_places"
     ]
@@ -1542,15 +1614,27 @@ def _render_venue_candidates(
     for venue in venues:
         venue_column, action_column = st.columns([4, 1.35])
         with venue_column:
-            st.markdown(f"**{venue.name}**")
-            st.caption(
-                f"{format_venue_distance_level(venue.distance_km)} · "
-                f"{format_venue_distance(venue.distance_km)} · "
-                f"{format_venue_transport_ease(venue.transport_ease)}"
-            )
-            st.caption(
+            meta_lines = []
+            if show_distance and venue.distance_km:
+                meta_lines.append(
+                    f"{format_venue_distance_level(venue.distance_km)} · "
+                    f"{format_venue_distance(venue.distance_km)} · "
+                    f"{format_venue_transport_ease(venue.transport_ease)}"
+                )
+            meta_lines.append(
                 f"{format_cost_level(venue.cost_level)} bütçe · "
                 f"{format_reservation_requirement(venue.requires_reservation)}"
+            )
+            meta_html = "".join(
+                f'<div class="venue-meta">{escape(line)}</div>'
+                for line in meta_lines
+            )
+            st.markdown(
+                (
+                    f'<div class="venue-name">{escape(venue.name)}</div>'
+                    f"{meta_html}"
+                ),
+                unsafe_allow_html=True,
             )
         if developer_mode:
             st.caption(
@@ -1732,8 +1816,15 @@ def _render_user_recommendation_explanation(
             preferences,
         )
     )
-    st.markdown("**Neden bunu önerdim?**")
-    st.write(reason)
+    st.markdown(
+        (
+            '<div class="rec-section">'
+            '<div class="rec-label">Neden bunu önerdim?</div>'
+            f'<p class="rec-reason">{escape(reason)}</p>'
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
 
     attention_items = _build_attention_items(
         recommendation,
@@ -1741,9 +1832,49 @@ def _render_user_recommendation_explanation(
         preferences,
     )
     if attention_items:
-        st.markdown("**Dikkat et**")
-        for item in attention_items:
-            st.caption(f"- {item}")
+        items_html = "".join(
+            f"<li>{escape(item)}</li>" for item in attention_items
+        )
+        st.markdown(
+            (
+                '<div class="rec-section rec-attention">'
+                '<div class="rec-label">Dikkat et</div>'
+                f"<ul>{items_html}</ul>"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
+        )
+
+
+# Per-activity flavor so each card reads differently: (lead, action verb).
+OUTDOOR_ACTIVITY_LINES = {
+    "walking": ("yürüyüş için hava gayet uygun", "rahat bir yürüyüş yapabilirsin"),
+    "running": ("koşu için koşullar elverişli", "tempolu bir koşu çıkarabilirsin"),
+    "cycling": ("bisiklet için hava uygun", "keyifli bir tur atabilirsin"),
+    "sports": ("açık havada spor için güzel bir gün", "hareketlenebilirsin"),
+    "culture": ("açık hava kültür turu için güzel bir gün", "gezip keşfedebilirsin"),
+    "social": ("dışarıda buluşmak için hava güzel", "vakit geçirebilirsin"),
+    "study": ("açık havada çalışmak için sakin bir gün", "oturup odaklanabilirsin"),
+    "photography": (
+        "fotoğraf için hava ve ışık uygun",
+        "güzel kareler yakalayabilirsin",
+    ),
+    "relaxation": ("açık havada dinlenmek için ideal bir gün", "mola verebilirsin"),
+    "creative": (
+        "açık havada üretmek için ilham verici bir gün",
+        "vakit geçirebilirsin",
+    ),
+}
+
+def _venue_names_phrase(recommendation) -> str:
+    """Return up to two recommended venue names joined for prose."""
+    venues = getattr(recommendation, "venues", None) or []
+    names = [venue.name for venue in venues[:2] if getattr(venue, "name", "")]
+    if not names:
+        return ""
+    if len(names) == 1:
+        return names[0]
+    return f"{names[0]} veya {names[1]}"
 
 
 def _format_user_recommendation_reason(
@@ -1755,47 +1886,191 @@ def _format_user_recommendation_reason(
     activity_type = format_activity_type(
         recommendation.activity.activity_type
     ).lower()
+    activity_key = recommendation.activity.activity_type.casefold()
+    venue_phrase = _venue_names_phrase(recommendation)
+
     if (
         not recommendation.activity.is_outdoor
         and preferences is not None
         and preferences.prefers_outdoor
     ):
-        preferred_type = format_activity_type(
-            preferences.preferred_activity_type
-        ).lower()
         recommendation_name = format_activity_name(
             recommendation.activity.name
         ).lower()
-        reasons = _format_weather_limit_reasons(weather, preferences)
+        if preferences.preferred_activity_type.strip():
+            preferred_type = format_activity_type(
+                preferences.preferred_activity_type
+            ).lower()
+            intro = f"İlk tercihin açık alanda {preferred_type} yapmaktı"
+        else:
+            intro = "Açık alan seçmiştin"
+
+        venue_tail = (
+            f" {venue_phrase} gibi yerlere bakabilirsin." if venue_phrase else ""
+        )
+        reasons = _format_weather_limit_reasons(
+            weather, preferences
+        ) or _weather_driver_reasons(weather)
         if reasons:
             return (
-                f"İlk tercihin açık alanda {preferred_type} yapmaktı; "
-                f"{_join_reason_parts(reasons)}. Bu yüzden "
-                f"{recommendation_name} daha rahat bir seçenek."
+                f"{intro}; {_join_reason_parts(reasons)}. Bu yüzden "
+                f"{recommendation_name} daha rahat bir seçenek.{venue_tail}"
             )
         return (
-            f"Açık alan bugün biraz temkin istiyor. Bu yüzden "
-            f"{recommendation_name} daha kontrollü ve rahat bir alternatif."
+            f"{intro} ama açık hava bugün gayet uygun; yine de "
+            f"{recommendation_name} hava ne olursa olsun rahat bir "
+            f"alternatif.{venue_tail}"
         )
 
     if not recommendation.activity.is_outdoor:
+        drivers = _weather_driver_reasons(weather)
+        venue_tail = (
+            f" {venue_phrase} gibi yerler iş görür." if venue_phrase else ""
+        )
+        if drivers:
+            return (
+                f"Dışarıda {_join_reason_parts(drivers)}; bu yüzden kapalı alanda "
+                f"{activity_type} planı bugün daha rahat ve havadan "
+                f"etkilenmez.{venue_tail}"
+            )
         return (
-            f"Hava dışarıda pek rahat görünmediği için bu {activity_type} "
-            f"seçeneği daha güvenli ve konforlu bir {setting} alternatifi."
+            f"Bugün kapalı alanda {activity_type} planı; hava ne olursa olsun "
+            f"konforlu ve keyifli.{venue_tail}"
         )
 
-    if weather is not None and preferences is not None:
-        return (
-            f"Bu {activity_type} seçeneği hava sınırlarınla uyumlu görünüyor: "
-            f"yağış %{weather.precipitation_probability_percent}, rüzgâr "
-            f"{weather.wind_speed_kmh:.0f} km/h ve risk "
-            f"{format_severity(weather.severity_level.value)}."
+    if weather is not None:
+        return _format_outdoor_activity_reason(
+            activity_key,
+            activity_type,
+            venue_phrase,
+            weather,
         )
 
     return (
         f"Seçtiğin aktivite türüne yakın, hava koşullarıyla uyumlu bir "
         f"{setting} seçeneği."
     )
+
+
+def _format_outdoor_activity_reason(
+    activity_key: str,
+    activity_type: str,
+    venue_phrase: str,
+    weather,
+) -> str:
+    """Build a varied, activity- and venue-specific outdoor description."""
+    lead, action = OUTDOOR_ACTIVITY_LINES.get(
+        activity_key,
+        (f"açık havada {activity_type} için hava uygun", "vakit geçirebilirsin"),
+    )
+    weather_bit = (
+        f"{weather.temperature_celsius:.0f}°C, yağış "
+        f"%{weather.precipitation_probability_percent}, rüzgâr "
+        f"{weather.wind_speed_kmh:.0f} km/h"
+    )
+    where = (
+        f"{venue_phrase} gibi yerlerde"
+        if venue_phrase
+        else "Yakındaki açık alanlarda"
+    )
+    sentence = f"Bugün {lead} ({weather_bit}). {where} {action}."
+    caution = _weather_caution_label(weather)
+    if caution:
+        sentence += f" Tek not: {caution}."
+    return sentence
+
+
+def _weather_caution_label(weather) -> str:
+    """Return a short qualitative caution (no repeated numbers) for fact-lines."""
+    if weather is None:
+        return ""
+
+    condition = weather.condition.strip().casefold()
+    tokens = set(condition.replace("-", " ").split())
+    parts: list[str] = []
+
+    if "thunderstorm" in condition or "storm" in condition:
+        parts.append("fırtına ihtimali var")
+    elif "rainy" in tokens:
+        parts.append("yağmur bekleniyor")
+    elif "snowy" in tokens:
+        parts.append("kar bekleniyor")
+    elif "drizzle" in tokens:
+        parts.append("hafif çiseleme olabilir")
+    elif "foggy" in tokens:
+        parts.append("hava sisli")
+
+    wind = weather.wind_speed_kmh
+    if wind >= 50:
+        parts.append("rüzgâr çok kuvvetli")
+    elif wind >= 35:
+        parts.append("rüzgâr kuvvetli")
+    elif wind >= 20:
+        parts.append("rüzgâr biraz yüksek")
+
+    precipitation = weather.precipitation_probability_percent
+    if precipitation >= 65:
+        parts.append("yağış ihtimali yüksek")
+    elif precipitation >= 35:
+        parts.append("yağış ihtimali var")
+
+    temperature = weather.temperature_celsius
+    if temperature <= 5:
+        parts.append("hava soğuk")
+    elif temperature >= 32:
+        parts.append("hava sıcak")
+
+    return _join_reason_parts(parts)
+
+
+def _weather_driver_reasons(weather) -> list[str]:
+    """Return the real, threshold-independent reasons weather is elevated.
+
+    Mirrors classify_weather_severity so the explanation matches the risk badge.
+    """
+    if weather is None:
+        return []
+
+    condition = weather.condition.strip().casefold()
+    tokens = set(condition.replace("-", " ").split())
+    wind = weather.wind_speed_kmh
+    precipitation = weather.precipitation_probability_percent
+    temperature = weather.temperature_celsius
+    reasons: list[str] = []
+
+    if "thunderstorm" in condition or "storm" in condition:
+        reasons.append("gök gürültülü/fırtınalı hava bekleniyor")
+    elif "rainy" in tokens:
+        reasons.append("yağmur bekleniyor")
+    elif "snowy" in tokens:
+        reasons.append("kar bekleniyor")
+    elif "drizzle" in tokens:
+        reasons.append("hafif çiseleme var")
+    elif "foggy" in tokens:
+        reasons.append("hava sisli")
+
+    if wind >= 50:
+        reasons.append(f"rüzgâr {wind:.0f} km/h ile çok kuvvetli")
+    elif wind >= 35:
+        reasons.append(f"rüzgâr {wind:.0f} km/h ile kuvvetli")
+    elif wind >= 20:
+        reasons.append(f"rüzgâr {wind:.0f} km/h ile biraz yüksek")
+
+    if precipitation >= 65:
+        reasons.append(f"yağış ihtimali %{precipitation} ile yüksek")
+    elif precipitation >= 35:
+        reasons.append(f"yağış ihtimali %{precipitation}")
+
+    if temperature <= -5:
+        reasons.append(f"hava {temperature:.0f}°C ile çok soğuk")
+    elif temperature <= 5:
+        reasons.append(f"hava {temperature:.0f}°C ile soğuk")
+    elif temperature >= 40:
+        reasons.append(f"hava {temperature:.0f}°C ile aşırı sıcak")
+    elif temperature >= 32:
+        reasons.append(f"hava {temperature:.0f}°C ile oldukça sıcak")
+
+    return reasons
 
 
 def _select_user_explanation(
@@ -1883,7 +2158,9 @@ def _build_attention_items(
         and preferences is not None
         and preferences.prefers_outdoor
     ):
-        reasons = _format_weather_limit_reasons(weather, preferences)
+        reasons = _format_weather_limit_reasons(
+            weather, preferences
+        ) or _weather_driver_reasons(weather)
         if reasons:
             items.append(
                 "Açık alanı yine de tercih edersen hava değişimini tekrar "
@@ -1905,15 +2182,19 @@ def _format_user_fit_label(recommendation) -> str:
 
 
 def _format_user_weather_summary(weather) -> str:
+    drivers = _weather_driver_reasons(weather)
+    driver_text = (
+        f" Öne çıkan: {_join_reason_parts(drivers)}." if drivers else ""
+    )
     if weather.severity_level.value in {"HIGH", "SEVERE"}:
         return (
-            "Hava açık alan için zorlayıcı görünüyor. Bu yüzden daha güvenli "
-            "kapalı seçeneklere öncelik verdim."
+            "Hava açık alan için zorlayıcı görünüyor, bu yüzden daha güvenli "
+            f"kapalı seçeneklere öncelik verdim.{driver_text}"
         )
     if weather.severity_level.value == "MODERATE":
         return (
-            "Hava fena değil ama biraz temkin istiyor. Açık alan yerine daha "
-            "rahat bir kapalı alternatif öne çıkabilir."
+            "Hava fena değil ama biraz tedbir istiyor, açık alan yerine daha "
+            f"rahat bir kapalı alternatif öne çıkabilir.{driver_text}"
         )
     return (
         "Hava genel olarak rahat görünüyor; tercihlerine yakın seçenekler "
@@ -2471,11 +2752,80 @@ def _render_styles() -> None:
             color: var(--mint);
             font-size: 1rem;
         }
+        main [data-testid="stVerticalBlockBorderWrapper"] {
+            padding: 1.4rem 1.5rem 1.5rem !important;
+        }
+        .recommendation-heading h3 {
+            margin-top: 0.1rem;
+        }
+        .recommendation-heading small {
+            color: var(--muted);
+            display: block;
+            font-size: 0.84rem;
+            margin-top: 0.3rem;
+        }
+        .rec-section {
+            margin: 1.05rem 0 0;
+        }
+        .rec-label {
+            color: var(--accent);
+            font-size: 0.68rem;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            margin-bottom: 0.4rem;
+        }
+        .rec-reason {
+            color: #e7ebf0;
+            font-size: 1rem;
+            line-height: 1.7;
+            margin: 0;
+        }
+        .rec-attention ul {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .rec-attention li {
+            color: #c9d1da;
+            font-size: 0.92rem;
+            line-height: 1.6;
+            padding: 0.1rem 0 0.1rem 1.1rem;
+            position: relative;
+        }
+        .rec-attention li::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0.62rem;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--amber);
+        }
+        .picked-place {
+            color: var(--text);
+            font-size: 1rem;
+            font-weight: 650;
+            line-height: 1.3;
+            margin-bottom: 0.1rem;
+        }
         .venue-title {
             color: var(--text);
-            font-size: 0.9rem;
+            font-size: 0.95rem;
             font-weight: 700;
-            margin-top: 0.65rem;
+            margin-top: 0.1rem;
+        }
+        .venue-name {
+            color: var(--text);
+            font-size: 1rem;
+            font-weight: 600;
+            line-height: 1.3;
+        }
+        .venue-meta {
+            color: #b4bcc7;
+            font-size: 0.85rem;
+            margin-top: 0.2rem;
         }
         div[data-testid="stAlert"] {
             border-radius: 8px;

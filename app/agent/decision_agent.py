@@ -103,6 +103,7 @@ class DecisionAgent:
             city=city,
             preferences=preferences,
             target_date=target_date,
+            recommendation_limit=max(1, recommendation_limit),
         )
         trace: list[AgentTraceStep] = []
 
@@ -207,12 +208,19 @@ class DecisionAgent:
                     state.preferences,
                     state.candidates,
                 )
+                for ranked in state.ranked_candidates:
+                    name_key = ranked.activity.name.casefold()
+                    if name_key in state.accumulated_names:
+                        continue
+                    state.accumulated_names.add(name_key)
+                    state.accumulated.append(ranked)
                 state.scoring_completed = True
                 trace.append(
                     AgentTraceStep(
                         action,
                         f"{len(state.ranked_candidates)} candidates passed rules "
-                        "and were ranked.",
+                        f"and were ranked ({len(state.accumulated)} gathered so "
+                        "far).",
                     )
                 )
                 continue
@@ -244,6 +252,7 @@ class DecisionAgent:
                         step.action
                         in {
                             AgentAction.LOAD_RELATED_ALTERNATIVES,
+                            AgentAction.LOAD_BROADER_CANDIDATES,
                             AgentAction.LOAD_SAFE_ALTERNATIVES,
                         }
                         for step in trace
@@ -284,7 +293,19 @@ class DecisionAgent:
                 "Planner finalized before weather was available."
             )
 
-        selected_candidates = state.ranked_candidates[: max(1, recommendation_limit)]
+        prefers_outdoor = state.preferences.prefers_outdoor
+        # Keep options that honor the requested indoor/outdoor setting on top,
+        # then rank each tier by score. This keeps the user's actual preference
+        # first while still filling the request with sensible alternatives.
+        ordered_candidates = sorted(
+            state.accumulated,
+            key=lambda result: (
+                0 if result.activity.is_outdoor == prefers_outdoor else 1,
+                -result.total_score,
+                result.activity.name,
+            ),
+        )
+        selected_candidates = ordered_candidates[: max(1, recommendation_limit)]
         recommendations = [
             Recommendation(
                 activity=result.activity,
@@ -302,17 +323,19 @@ class DecisionAgent:
             )
         )
 
+        # The preference is "satisfied" when at least one recommendation keeps
+        # the user's requested indoor/outdoor setting. We only flag a safe
+        # fallback when every recommendation had to deviate from it.
+        used_safe_fallback = bool(recommendations) and all(
+            recommendation.activity.is_outdoor != prefers_outdoor
+            for recommendation in recommendations
+        )
+
         return AgentResult(
             status="completed",
             weather=state.weather,
             recommendations=recommendations,
             trace=trace,
-            used_safe_fallback=(
-                state.search_strategy
-                in {
-                    SearchStrategy.RELATED_ALTERNATIVES,
-                    SearchStrategy.SAFE_ALTERNATIVES,
-                }
-            ),
+            used_safe_fallback=used_safe_fallback,
             message="Recommendations were produced successfully.",
         )

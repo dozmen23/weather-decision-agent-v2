@@ -48,6 +48,11 @@ class WeatherService:
         forecast = self._fetch_forecast(location)
         return self._normalize_weather(location, forecast)
 
+    def resolve_coordinates(self, city: str) -> tuple[float, float]:
+        """Return the (latitude, longitude) geocoded for a city name."""
+        location = self._resolve_location(self._normalize_city(city))
+        return location.latitude, location.longitude
+
     def get_current_weather_for_coordinates(
         self,
         latitude: float,

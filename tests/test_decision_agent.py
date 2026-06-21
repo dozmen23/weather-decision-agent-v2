@@ -134,6 +134,7 @@ class DecisionAgentTests(unittest.TestCase):
         result = DecisionAgent(weather_tool, activity_tool).run(
             "Istanbul",
             self.preferences,
+            recommendation_limit=1,
         )
 
         self.assertEqual(result.status, "completed")
@@ -149,6 +150,31 @@ class DecisionAgentTests(unittest.TestCase):
             ],
         )
 
+    def test_agent_fills_up_to_requested_count_with_alternatives(self) -> None:
+        # Only Park Walk is eligible outdoors, but the user asked for 3.
+        weather_tool = StubWeatherTool(
+            WeatherData("Istanbul", 24, 0, 24, "Partly cloudy")
+        )
+        activity_tool = StubActivityTool(
+            [self.park_walk, self.cycling, self.museum, self.mall_walk]
+        )
+
+        result = DecisionAgent(weather_tool, activity_tool).run(
+            "Istanbul",
+            self.preferences,
+            recommendation_limit=3,
+        )
+
+        self.assertEqual(result.status, "completed")
+        # The preferred-setting (outdoor) option stays first even though indoor
+        # alternatives score higher on guaranteed weather safety.
+        self.assertEqual(result.recommendations[0].activity.name, "Park Walk")
+        self.assertTrue(result.recommendations[0].activity.is_outdoor)
+        # The agent topped up beyond the single eligible outdoor option.
+        self.assertGreater(len(result.recommendations), 1)
+        names = [item.activity.name for item in result.recommendations]
+        self.assertEqual(len(names), len(set(names)))
+
     def test_agent_replans_to_indoor_options_after_bad_weather(self) -> None:
         weather_tool = StubWeatherTool(
             WeatherData("Istanbul", 18, 90, 45, "Thunderstorm")
@@ -160,6 +186,7 @@ class DecisionAgentTests(unittest.TestCase):
         result = DecisionAgent(weather_tool, activity_tool).run(
             "Istanbul",
             self.preferences,
+            recommendation_limit=1,
         )
 
         self.assertEqual(result.status, "completed")

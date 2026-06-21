@@ -61,7 +61,7 @@ class DeterministicEvaluator:
             self._check_safety(result, preferences),
             self._check_score_integrity(result, preferences),
             self._check_explanations(result),
-            self._check_fallback_consistency(result),
+            self._check_fallback_consistency(result, preferences),
         ]
         system_behavior_valid = all(check.passed for check in checks)
         recommendation_success = (
@@ -171,7 +171,6 @@ class DeterministicEvaluator:
         preferences: UserPreferences,
     ) -> EvaluationCheck:
         invalid_scores: list[str] = []
-        scores = [recommendation.score for recommendation in result.recommendations]
 
         for recommendation in result.recommendations:
             recalculated = score_activity(
@@ -191,7 +190,7 @@ class DeterministicEvaluator:
             if not score_matches or not breakdown_matches or not score_is_sufficient:
                 invalid_scores.append(recommendation.activity.name)
 
-        is_ranked = scores == sorted(scores, reverse=True)
+        is_ranked = _ranking_respects_preference(result, preferences)
         passed = not invalid_scores and is_ranked
         return EvaluationCheck(
             name="score_integrity",
@@ -230,25 +229,43 @@ class DeterministicEvaluator:
         )
 
     @staticmethod
-    def _check_fallback_consistency(result: AgentResult) -> EvaluationCheck:
+    def _check_fallback_consistency(
+        result: AgentResult,
+        preferences: UserPreferences,
+    ) -> EvaluationCheck:
         actions = [step.action for step in result.trace]
         trace_used_fallback = any(
             action
             in {
                 AgentAction.LOAD_RELATED_ALTERNATIVES,
+                AgentAction.LOAD_BROADER_CANDIDATES,
                 AgentAction.LOAD_SAFE_ALTERNATIVES,
             }
             for action in actions
         )
-        recommendations_are_indoor = all(
-            not recommendation.activity.is_outdoor
-            for recommendation in result.recommendations
+        prefers_outdoor = preferences.prefers_outdoor
+        recommendations = result.recommendations
+        all_off_preference = bool(recommendations) and all(
+            recommendation.activity.is_outdoor != prefers_outdoor
+            for recommendation in recommendations
+        )
+        preference_satisfied = any(
+            recommendation.activity.is_outdoor == prefers_outdoor
+            for recommendation in recommendations
         )
 
-        if result.used_safe_fallback:
-            passed = trace_used_fallback and recommendations_are_indoor
+        if not recommendations:
+            # No recommendation: the flag only needs to mirror whether the agent
+            # actually attempted any broadening strategy.
+            passed = result.used_safe_fallback == trace_used_fallback
+        elif result.used_safe_fallback:
+            # A flagged safe fallback means every option deviated from the
+            # requested setting, and the trace must show a broadening step.
+            passed = trace_used_fallback and all_off_preference
         else:
-            passed = not trace_used_fallback
+            # Not flagged: at least one option honored the requested setting.
+            # Extra off-preference alternatives are allowed to fill the request.
+            passed = preference_satisfied
 
         return EvaluationCheck(
             name="fallback_consistency",
@@ -259,6 +276,39 @@ class DeterministicEvaluator:
                 else "Fallback metadata contradicts the decision trace or activities."
             ),
         )
+
+
+def _ranking_respects_preference(
+    result: AgentResult,
+    preferences: UserPreferences,
+) -> bool:
+    """Validate the two-tier ordering produced by the agent.
+
+    Recommendations that honor the requested indoor/outdoor setting must come
+    first, and each tier (preferred, then off-preference alternatives) must be
+    ordered by descending score.
+    """
+    prefers_outdoor = preferences.prefers_outdoor
+    tiers = [
+        0 if recommendation.activity.is_outdoor == prefers_outdoor else 1
+        for recommendation in result.recommendations
+    ]
+    if tiers != sorted(tiers):
+        return False
+
+    preferred_scores = [
+        recommendation.score
+        for recommendation, tier in zip(result.recommendations, tiers)
+        if tier == 0
+    ]
+    fallback_scores = [
+        recommendation.score
+        for recommendation, tier in zip(result.recommendations, tiers)
+        if tier == 1
+    ]
+    return preferred_scores == sorted(
+        preferred_scores, reverse=True
+    ) and fallback_scores == sorted(fallback_scores, reverse=True)
 
 
 def _score_breakdown_matches(left, right) -> bool:

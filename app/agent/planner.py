@@ -44,6 +44,9 @@ class AgentState:
     weather: WeatherData | None = None
     candidates: list[Activity] = field(default_factory=list)
     ranked_candidates: list[ScoreBreakdown] = field(default_factory=list)
+    accumulated: list[ScoreBreakdown] = field(default_factory=list)
+    accumulated_names: set[str] = field(default_factory=set)
+    recommendation_limit: int = 1
     search_strategy: SearchStrategy = SearchStrategy.NOT_STARTED
     scoring_completed: bool = False
 
@@ -62,7 +65,9 @@ class DecisionPlanner:
         if not state.scoring_completed:
             return AgentAction.SCORE_CANDIDATES
 
-        if state.ranked_candidates:
+        # Finalize once enough eligible candidates have been gathered across
+        # strategies; otherwise keep broadening the search to fill the request.
+        if len(state.accumulated) >= max(1, state.recommendation_limit):
             return AgentAction.FINALIZE
 
         if state.search_strategy is SearchStrategy.PREFERRED:
@@ -71,10 +76,10 @@ class DecisionPlanner:
         if state.search_strategy is SearchStrategy.RELATED_ALTERNATIVES:
             return AgentAction.LOAD_BROADER_CANDIDATES
 
-        if (
-            state.search_strategy is SearchStrategy.BROADER
-            and state.preferences.prefers_outdoor
-        ):
+        if state.search_strategy is SearchStrategy.BROADER:
             return AgentAction.LOAD_SAFE_ALTERNATIVES
+
+        if state.accumulated:
+            return AgentAction.FINALIZE
 
         return AgentAction.STOP_NO_RESULT

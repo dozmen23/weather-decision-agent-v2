@@ -27,7 +27,8 @@ def evaluate_activity(
     warnings: list[str] = []
 
     if (
-        activity.activity_type.casefold()
+        preferences.preferred_activity_type.strip()
+        and activity.activity_type.casefold()
         != preferences.preferred_activity_type.casefold()
     ):
         warnings.append("Activity type does not match the user's first preference.")

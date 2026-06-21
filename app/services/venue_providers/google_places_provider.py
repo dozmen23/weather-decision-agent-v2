@@ -79,6 +79,70 @@ DEFAULT_INDOOR_PLACE_TYPES = (
     "community_center",
 )
 
+# On-topic broadening used only when the primary, activity-specific search
+# returns nothing. Kept relevant per activity so we never surface, e.g., a
+# restaurant for a sports request.
+FALLBACK_PLACE_TYPES_BY_ACTIVITY = {
+    "walking": {
+        True: ("park", "city_park", "garden", "plaza", "tourist_attraction"),
+        False: ("shopping_mall", "museum", "library", "community_center"),
+    },
+    "running": {
+        True: ("park", "city_park", "athletic_field", "stadium", "sports_complex"),
+        False: ("gym", "fitness_center", "sports_complex", "sports_activity_location"),
+    },
+    "cycling": {
+        True: ("cycling_park", "park", "city_park", "tourist_attraction"),
+        False: ("gym", "fitness_center", "sports_complex"),
+    },
+    "sports": {
+        True: ("athletic_field", "stadium", "sports_complex", "sports_activity_location"),
+        False: (
+            "gym",
+            "fitness_center",
+            "sports_complex",
+            "sports_club",
+            "sports_activity_location",
+            "arena",
+        ),
+    },
+    "culture": {
+        True: ("tourist_attraction", "historical_landmark", "monument", "plaza"),
+        False: ("museum", "art_gallery", "cultural_center", "performing_arts_theater"),
+    },
+    "study": {
+        True: ("park", "city_park", "garden", "plaza"),
+        False: ("library", "coworking_space", "book_store", "cafe"),
+    },
+    "social": {
+        True: ("park", "plaza", "tourist_attraction"),
+        False: ("cafe", "coffee_shop", "shopping_mall", "restaurant", "bar"),
+    },
+    "photography": {
+        True: ("scenic_spot", "tourist_attraction", "park", "historical_landmark"),
+        False: ("museum", "art_gallery", "shopping_mall"),
+    },
+    "relaxation": {
+        True: ("park", "garden", "botanical_garden", "beach"),
+        False: ("spa", "wellness_center", "yoga_studio", "library"),
+    },
+}
+
+# Dining/nightlife place types that are only acceptable for social activities;
+# for everything else they are filtered out as off-topic.
+DINING_PLACE_TYPES = {
+    "restaurant",
+    "bar",
+    "night_club",
+    "fast_food_restaurant",
+    "meal_takeaway",
+    "meal_delivery",
+    "liquor_store",
+    "pub",
+}
+
+ACTIVITIES_ALLOWING_DINING = {"social", "relaxation"}
+
 PLACE_TYPES_BY_ACTIVITY = {
     "walking": {
         True: ("park", "city_park", "tourist_attraction", "plaza"),
@@ -270,6 +334,46 @@ class GooglePlacesVenueProvider:
             is_outdoor,
             activity_name=activity_name,
         )
+        venues = self._search_place_types(
+            included_types,
+            activity_type=activity_type,
+            is_outdoor=is_outdoor,
+            origin_latitude=origin_latitude,
+            origin_longitude=origin_longitude,
+            limit=limit,
+        )
+        if venues:
+            return venues
+
+        # The activity-specific place types found nothing nearby; retry once
+        # with broader but still on-topic types so the user still gets places.
+        broad_types = _fallback_place_types(activity_type, is_outdoor)
+        fallback_types = tuple(
+            place_type
+            for place_type in broad_types
+            if place_type not in included_types
+        )
+        if not fallback_types:
+            return venues
+        return self._search_place_types(
+            fallback_types,
+            activity_type=activity_type,
+            is_outdoor=is_outdoor,
+            origin_latitude=origin_latitude,
+            origin_longitude=origin_longitude,
+            limit=limit,
+        )
+
+    def _search_place_types(
+        self,
+        included_types: tuple[str, ...],
+        *,
+        activity_type: str,
+        is_outdoor: bool,
+        origin_latitude: float,
+        origin_longitude: float,
+        limit: int,
+    ) -> list[Venue]:
         raw_places = self.client.fetch_nearby_places(
             included_types=included_types,
             latitude=origin_latitude,
@@ -277,9 +381,12 @@ class GooglePlacesVenueProvider:
             radius_meters=self.radius_meters,
             max_result_count=max(limit, self.max_result_count),
         )
+        allow_dining = activity_type.casefold() in ACTIVITIES_ALLOWING_DINING
         venues = []
         for raw_place in raw_places:
             if not _is_usable_google_place(raw_place):
+                continue
+            if not allow_dining and _is_dining_place(raw_place):
                 continue
             try:
                 venue = _venue_from_google_place(
@@ -293,6 +400,38 @@ class GooglePlacesVenueProvider:
                 continue
             venues.append(venue)
         return _deduplicate_by_name(venues)
+
+
+def _fallback_place_types(activity_type: str, is_outdoor: bool) -> tuple[str, ...]:
+    """Return on-topic broader place types for the empty-result retry."""
+    mapping = FALLBACK_PLACE_TYPES_BY_ACTIVITY.get(activity_type.casefold())
+    if mapping is not None:
+        return mapping[is_outdoor]
+    return (
+        DEFAULT_OUTDOOR_PLACE_TYPES
+        if is_outdoor
+        else DEFAULT_INDOOR_PLACE_TYPES
+    )
+
+
+def _is_dining_place(raw_place: dict[str, Any]) -> bool:
+    """Return True when a place is primarily a dining/nightlife venue."""
+    primary_type = str(raw_place.get("primaryType", "")).strip().casefold()
+    if primary_type in DINING_PLACE_TYPES:
+        return True
+    types = {
+        str(place_type).strip().casefold()
+        for place_type in raw_place.get("types", [])
+        if isinstance(place_type, str)
+    }
+    # Only treat as dining when it has a dining type and no clearly non-dining
+    # purpose (e.g. a gym with a snack bar still counts as a gym).
+    non_dining_types = types - DINING_PLACE_TYPES - {
+        "point_of_interest",
+        "establishment",
+        "food",
+    }
+    return bool(types & DINING_PLACE_TYPES) and not non_dining_types
 
 
 def google_place_types_for_activity(

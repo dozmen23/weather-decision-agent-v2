@@ -49,10 +49,12 @@ def score_activity(
             failed_rules=rule_result.failed_rules,
         )
 
+    has_type_preference = bool(preferences.preferred_activity_type.strip())
     activity_type_score = (
         25.0
         if (
-            activity.activity_type.casefold()
+            not has_type_preference
+            or activity.activity_type.casefold()
             == preferences.preferred_activity_type.casefold()
         )
         else 0.0

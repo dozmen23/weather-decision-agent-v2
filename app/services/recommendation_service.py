@@ -44,8 +44,8 @@ from evaluation.evaluator import (
 INDOOR_FEEDBACK_PENALTY = 2.0
 PERSONALIZATION_HISTORY_LIMIT = 20
 PERSONALIZATION_NEGATIVE_THRESHOLD = 2
-VENUE_DISPLAY_LIMIT = 2
-VENUE_DIVERSITY_POOL_LIMIT = 4
+VENUE_DISPLAY_LIMIT = 3
+VENUE_DIVERSITY_POOL_LIMIT = 6
 
 
 @dataclass(frozen=True)
@@ -96,9 +96,11 @@ class RecommendationService:
         recommendation_limit: int = 3,
         target_date: date | None = None,
         venue_origin: tuple[float, float] | None = None,
+        venue_limit: int = VENUE_DISPLAY_LIMIT,
     ) -> RecommendationWorkflowResult:
         """Produce, verify, and optionally explain recommendations."""
         preferences = self._personalize_preferences(preferences)
+        venue_limit = max(1, venue_limit)
 
         if target_date is None:
             agent_result = self.agent.run(
@@ -121,6 +123,7 @@ class RecommendationService:
             agent_result,
             preferences,
             venue_origin=venue_origin,
+            venue_limit=venue_limit,
         )
 
         if (
@@ -159,6 +162,7 @@ class RecommendationService:
                 agent_result,
                 preferences,
                 venue_origin=venue_origin,
+                venue_limit=venue_limit,
             )
 
         if (
@@ -273,10 +277,13 @@ class RecommendationService:
         agent_result: AgentResult,
         preferences: UserPreferences,
         venue_origin: tuple[float, float] | None = None,
+        venue_limit: int = VENUE_DISPLAY_LIMIT,
     ) -> AgentResult:
         if not agent_result.recommendations:
             return agent_result
 
+        display_limit = max(1, venue_limit)
+        pool_limit = max(VENUE_DIVERSITY_POOL_LIMIT, display_limit * 2)
         origin_latitude = venue_origin[0] if venue_origin else None
         origin_longitude = venue_origin[1] if venue_origin else None
         try:
@@ -290,12 +297,12 @@ class RecommendationService:
                     preferences=preferences,
                     origin_latitude=origin_latitude,
                     origin_longitude=origin_longitude,
-                    limit=VENUE_DIVERSITY_POOL_LIMIT,
+                    limit=pool_limit,
                 )
                 selected_venues = _select_diverse_venues(
                     venues,
                     used_venue_keys,
-                    limit=VENUE_DISPLAY_LIMIT,
+                    limit=display_limit,
                 )
                 used_venue_keys.update(
                     _venue_identity(venue) for venue in selected_venues
@@ -385,7 +392,16 @@ def _build_generated_candidate_result(
             ),
         )
 
-    selected_candidates = ranked_candidates[: max(1, recommendation_limit)]
+    prefers_outdoor = preferences.prefers_outdoor
+    ordered_candidates = sorted(
+        ranked_candidates,
+        key=lambda result: (
+            0 if result.activity.is_outdoor == prefers_outdoor else 1,
+            -result.total_score,
+            result.activity.name,
+        ),
+    )
+    selected_candidates = ordered_candidates[: max(1, recommendation_limit)]
     recommendations = [
         Recommendation(
             activity=result.activity,
