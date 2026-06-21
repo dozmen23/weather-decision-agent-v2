@@ -41,6 +41,7 @@ class FakeNearbyVenueProvider:
         self,
         *,
         activity_type: str,
+        activity_name: str | None,
         is_outdoor: bool,
         origin_latitude: float,
         origin_longitude: float,
@@ -49,6 +50,7 @@ class FakeNearbyVenueProvider:
         self.calls.append(
             {
                 "activity_type": activity_type,
+                "activity_name": activity_name,
                 "is_outdoor": is_outdoor,
                 "origin_latitude": origin_latitude,
                 "origin_longitude": origin_longitude,
@@ -125,6 +127,7 @@ class VenueServiceTests(unittest.TestCase):
 
         venues = VenueService(provider=provider).find_candidates(
             activity_type="walking",
+            activity_name="Park Walk",
             is_outdoor=True,
             preferences=preferences,
             origin_latitude=41.0,
@@ -134,6 +137,7 @@ class VenueServiceTests(unittest.TestCase):
 
         self.assertEqual([venue.name for venue in venues], ["Live Park Walk"])
         self.assertEqual(provider.calls[0]["origin_latitude"], 41.0)
+        self.assertEqual(provider.calls[0]["activity_name"], "Park Walk")
         self.assertEqual(provider.calls[0]["limit"], 8)
 
     def test_reservation_preference_filters_venues(self) -> None:

@@ -130,6 +130,28 @@ class GooglePlacesProviderTests(unittest.TestCase):
             self.assertTrue(google_place_types_for_activity(activity_type, True))
             self.assertTrue(google_place_types_for_activity(activity_type, False))
 
+    def test_specific_sports_use_distinct_place_type_intents(self) -> None:
+        swimming_types = google_place_types_for_activity(
+            "sports",
+            False,
+            activity_name="Indoor Swimming",
+        )
+        climbing_types = google_place_types_for_activity(
+            "sports",
+            False,
+            activity_name="Indoor Climbing",
+        )
+        court_types = google_place_types_for_activity(
+            "sports",
+            False,
+            activity_name="Indoor Court Training",
+        )
+
+        self.assertEqual(swimming_types, ("swimming_pool",))
+        self.assertIn("adventure_sports_center", climbing_types)
+        self.assertIn("sports_complex", court_types)
+        self.assertEqual(len({swimming_types, climbing_types, court_types}), 3)
+
     def test_unknown_activity_uses_safe_setting_specific_place_types(self) -> None:
         outdoor_types = google_place_types_for_activity("unknown", True)
         indoor_types = google_place_types_for_activity("unknown", False)

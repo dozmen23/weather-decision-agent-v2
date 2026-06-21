@@ -1,3 +1,19 @@
+---
+title: Weather Decision Agent
+emoji: 🌦️
+colorFrom: blue
+colorTo: red
+sdk: docker
+app_port: 7860
+fullWidth: true
+short_description: Weather-aware deterministic activity and venue recommendations.
+tags:
+  - streamlit
+  - agents
+  - weather
+  - google-maps
+---
+
 # Weather Decision Agent
 
 Weather Decision Agent, hava durumu ve kullanıcı tercihlerini analiz ederek
@@ -32,6 +48,10 @@ uygun aktivite önerileri üretmeyi amaçlayan bir Agentic AI projesidir.
   API key `.env` içindeki `GOOGLE_PLACES_API_KEY` üzerinden okunur.
 - Google Places mekanları Google Maps üzerinde gösterilir, Google Maps kaynak
   bilgisi ve doğrulanmış Google Maps bağlantısı mekan kartında korunur.
+- Spor mekanları yalnızca geniş kategoriyle aranmaz; yüzme, tırmanış, saha
+  antrenmanı, basketbol, tenis ve kapalı bisiklet için aktiviteye özel Google
+  place type niyetleri kullanılır. Alternatif bulunduğunda aynı mekanın farklı
+  öneri kartlarında tekrarlanması azaltılır.
 - Hava ve pratiklik filtrelerini teknik sayı girişi yerine doğal seviye
   seçenekleriyle toplar.
 - Yedi günlük tahmini kartlı gün seçiciyle gösterir.
@@ -92,9 +112,9 @@ Temel domain modelleri:
 
 Yakın vadeli geliştirme yönü:
 
-- harita destekli lokasyon seçimini canlı mekan verisiyle ilişkilendirmek
-- demo mekan veri kaynağını ileride canlı mekan API'siyle değiştirilebilir
-  hale getirmek
+- Hugging Face Spaces üzerinde herkese açık Docker demosunu yayınlamak
+- canlı kullanım geri bildirimlerine göre aktivite-mekan eşleşmelerini
+  iyileştirmek
 
 ## Yerel Kurulum
 
@@ -120,8 +140,9 @@ GOOGLE_MAPS_BROWSER_API_KEY=referrer_restricted_browser_key
 `GOOGLE_PLACES_API_KEY` sunucu tarafında kalır. Harita için kullanılan
 `GOOGLE_MAPS_BROWSER_API_KEY` Google Cloud'da yalnızca Maps JavaScript API'ye
 ve uygulamanın HTTP referrer adreslerine sınırlandırılmalıdır. Yerel geliştirme
-için referrer listesine `http://localhost:8501` ve
-`http://localhost:8501/*` eklenebilir.
+için referrer listesine `http://localhost` ve `http://localhost/*`
+eklenebilir. Böylece Streamlit farklı bir boş porta geçtiğinde harita erişimi
+bozulmaz.
 
 Web arayüzünü başlatmak için:
 
@@ -134,3 +155,45 @@ Testleri çalıştırmak için:
 ```bash
 pytest
 ```
+
+## Hugging Face Spaces Deployment
+
+Bu repo Docker Space olarak doğrudan yayınlanabilir. Yeni Space oluştururken
+SDK olarak `Docker` seçilmelidir; `README.md` metadata'sı uygulama portunu
+`7860` olarak tanımlar.
+
+Space ayarlarında aşağıdaki değerleri **Secrets** olarak ekleyin:
+
+```text
+GOOGLE_PLACES_API_KEY
+GOOGLE_MAPS_BROWSER_API_KEY
+LLM_API_KEY (yalnızca LLM etkinse)
+```
+
+Aşağıdaki değerleri **Variables** olarak ekleyin:
+
+```text
+VENUE_PROVIDER=google_places
+LLM_ENABLED=false
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-5.5
+```
+
+Docker imajı public demo geçmişini varsayılan olarak oturum bazında ve geçici
+tutar. Kalıcı ortak bir history dosyası kullanılmaz.
+
+Space yayınlandıktan sonra Google Cloud'daki tarayıcı anahtarına gerçek Space
+alan adını ekleyin:
+
+```text
+https://<space-subdomain>.hf.space
+https://<space-subdomain>.hf.space/*
+```
+
+`GOOGLE_PLACES_API_KEY` tarayıcıya gönderilmez. Bu anahtar Places API (New) ile
+sınırlandırılmış sunucu anahtarı olarak kalmalıdır.
+
+Public demo politikaları:
+
+- [Gizlilik Politikası](docs/privacy.md)
+- [Kullanım Koşulları](docs/terms.md)

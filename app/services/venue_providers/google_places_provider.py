@@ -118,6 +118,39 @@ PLACE_TYPES_BY_ACTIVITY = {
     },
 }
 
+PLACE_TYPES_BY_ACTIVITY_NAME = {
+    "indoor swimming": ("swimming_pool",),
+    "indoor climbing": (
+        "adventure_sports_center",
+        "sports_activity_location",
+        "gym",
+    ),
+    "indoor court training": (
+        "sports_complex",
+        "sports_activity_location",
+        "arena",
+    ),
+    "outdoor basketball": (
+        "athletic_field",
+        "sports_activity_location",
+        "playground",
+    ),
+    "outdoor tennis practice": (
+        "athletic_field",
+        "sports_club",
+        "sports_complex",
+    ),
+    "indoor cycling session": (
+        "fitness_center",
+        "sports_club",
+        "gym",
+    ),
+    "stationary bike workout": (
+        "fitness_center",
+        "gym",
+    ),
+}
+
 
 class GooglePlacesNearbyClient(Protocol):
     """Client boundary for Google Places Nearby Search."""
@@ -225,6 +258,7 @@ class GooglePlacesVenueProvider:
         self,
         *,
         activity_type: str,
+        activity_name: str | None = None,
         is_outdoor: bool,
         origin_latitude: float,
         origin_longitude: float,
@@ -234,6 +268,7 @@ class GooglePlacesVenueProvider:
         included_types = google_place_types_for_activity(
             activity_type,
             is_outdoor,
+            activity_name=activity_name,
         )
         raw_places = self.client.fetch_nearby_places(
             included_types=included_types,
@@ -263,8 +298,13 @@ class GooglePlacesVenueProvider:
 def google_place_types_for_activity(
     activity_type: str,
     is_outdoor: bool,
+    activity_name: str | None = None,
 ) -> tuple[str, ...]:
     """Return Google place types for a local activity type."""
+    normalized_name = (activity_name or "").strip().casefold()
+    if normalized_name in PLACE_TYPES_BY_ACTIVITY_NAME:
+        return PLACE_TYPES_BY_ACTIVITY_NAME[normalized_name]
+
     normalized_type = activity_type.casefold()
     if normalized_type in PLACE_TYPES_BY_ACTIVITY:
         return PLACE_TYPES_BY_ACTIVITY[normalized_type][is_outdoor]

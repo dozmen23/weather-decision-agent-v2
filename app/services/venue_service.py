@@ -33,6 +33,7 @@ class VenueService:
         self,
         *,
         activity_type: str,
+        activity_name: str | None = None,
         is_outdoor: bool,
         preferences: UserPreferences,
         origin_latitude: float | None = None,
@@ -45,6 +46,7 @@ class VenueService:
 
         candidates, _ = self.find_candidates_with_trace(
             activity_type=activity_type,
+            activity_name=activity_name,
             is_outdoor=is_outdoor,
             preferences=preferences,
             origin_latitude=origin_latitude,
@@ -57,6 +59,7 @@ class VenueService:
         self,
         *,
         activity_type: str,
+        activity_name: str | None = None,
         is_outdoor: bool,
         preferences: UserPreferences,
         origin_latitude: float | None = None,
@@ -71,6 +74,7 @@ class VenueService:
         venues = _candidate_venues(
             self.provider,
             activity_type=activity_type,
+            activity_name=activity_name,
             is_outdoor=is_outdoor,
             origin_latitude=origin_latitude,
             origin_longitude=origin_longitude,
@@ -112,6 +116,7 @@ def _candidate_venues(
     provider: VenueProvider,
     *,
     activity_type: str,
+    activity_name: str | None,
     is_outdoor: bool,
     origin_latitude: float | None,
     origin_longitude: float | None,
@@ -125,6 +130,7 @@ def _candidate_venues(
         _validate_origin(origin_latitude, origin_longitude)
         return provider.find_nearby(
             activity_type=activity_type,
+            activity_name=activity_name,
             is_outdoor=is_outdoor,
             origin_latitude=origin_latitude,
             origin_longitude=origin_longitude,

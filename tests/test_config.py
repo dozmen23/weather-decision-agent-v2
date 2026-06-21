@@ -5,6 +5,7 @@ import unittest
 from app.config import (
     ConfigurationError,
     GoogleMapsSettings,
+    HistorySettings,
     LLMSettings,
     VenueProviderSettings,
 )
@@ -102,6 +103,23 @@ class GoogleMapsSettingsTests(unittest.TestCase):
         self.assertEqual(disabled.browser_api_key, "")
         self.assertEqual(enabled.browser_api_key, "browser-secret")
         self.assertNotIn("browser-secret", repr(enabled))
+
+
+class HistorySettingsTests(unittest.TestCase):
+    def test_history_settings_support_file_and_session_modes(self) -> None:
+        default = HistorySettings.from_environment({})
+        session = HistorySettings.from_environment(
+            {"HISTORY_STORAGE_MODE": "session"}
+        )
+
+        self.assertEqual(default.storage_mode, "file")
+        self.assertEqual(session.storage_mode, "session")
+
+    def test_invalid_history_storage_mode_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ConfigurationError, "file.*session"):
+            HistorySettings.from_environment(
+                {"HISTORY_STORAGE_MODE": "shared"}
+            )
 
 
 if __name__ == "__main__":

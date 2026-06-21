@@ -128,6 +128,40 @@ class GoogleMapsSettings:
         )
 
 
+@dataclass(frozen=True)
+class HistorySettings:
+    """Storage settings for recommendation history and feedback."""
+
+    storage_mode: str = "file"
+    history_path: str = ""
+
+    @classmethod
+    def from_environment(
+        cls,
+        environment: Mapping[str, str] | None = None,
+    ) -> "HistorySettings":
+        """Load file-backed or session-isolated history settings."""
+        source = environment if environment is not None else os.environ
+        storage_mode = source.get(
+            "HISTORY_STORAGE_MODE",
+            "file",
+        ).strip().casefold()
+        history_path = source.get(
+            "RECOMMENDATION_HISTORY_PATH",
+            "",
+        ).strip()
+
+        if storage_mode not in {"file", "session"}:
+            raise ConfigurationError(
+                "HISTORY_STORAGE_MODE must be 'file' or 'session'."
+            )
+
+        return cls(
+            storage_mode=storage_mode,
+            history_path=history_path,
+        )
+
+
 def _parse_boolean(value: str) -> bool:
     normalized = value.strip().casefold()
     if normalized in {"true", "1", "yes", "on"}:

@@ -3,7 +3,9 @@
 from collections.abc import Iterable
 from dataclasses import replace
 from datetime import date, timedelta
+from html import escape
 from typing import Any
+from uuid import uuid4
 
 import streamlit as st
 
@@ -17,7 +19,7 @@ except ImportError:  # pragma: no cover - exercised by environments only.
 from app.agent.decision_agent import WeatherTool
 from app.agent.decision_agent import DecisionAgent
 from app.agent.planner import AgentAction
-from app.config import ConfigurationError
+from app.config import ConfigurationError, HistorySettings
 from app.llm.client import LLMServiceError
 from app.llm.factory import (
     create_llm_client,
@@ -33,6 +35,7 @@ from app.services.activity_service import ActivityCatalogError, ActivityService
 from app.services.history_service import (
     RecommendationHistoryError,
     RecommendationHistoryRepository,
+    create_history_repository,
 )
 from app.services.recommendation_service import (
     RecommendationService,
@@ -86,6 +89,14 @@ TURKISH_MONTH_NAMES = (
 
 USER_MODE = "user"
 DEVELOPER_MODE = "developer"
+PRIVACY_POLICY_URL = (
+    "https://github.com/dozmen23/weather-decision-agent-v2/blob/main/"
+    "docs/privacy.md"
+)
+TERMS_URL = (
+    "https://github.com/dozmen23/weather-decision-agent-v2/blob/main/"
+    "docs/terms.md"
+)
 LOCATION_MODE_CITY = "Şehir"
 LOCATION_MODE_COORDINATES = "Harita"
 DEFAULT_MAP_LATITUDE = 41.0138
@@ -256,13 +267,13 @@ def main() -> None:
     )
     _render_styles()
 
-    history_repository = RecommendationHistoryRepository()
+    history_repository = _get_history_repository()
     view_mode = _render_view_mode()
     developer_mode = view_mode == DEVELOPER_MODE
     _render_header(developer_mode)
 
     activity_types = get_activity_types()
-    form_values = _render_preference_form(activity_types)
+    form_values = _render_preference_form(activity_types, developer_mode)
     if form_values is None:
         last_result = st.session_state.get("last_workflow_result")
         if isinstance(last_result, RecommendationWorkflowResult):
@@ -277,10 +288,12 @@ def main() -> None:
             )
             if developer_mode:
                 _render_evaluation_dashboard()
+            _render_footer()
         else:
             _render_empty_state(developer_mode)
             if developer_mode:
                 _render_evaluation_dashboard()
+            _render_footer()
         return
 
     try:
@@ -310,6 +323,7 @@ def main() -> None:
         ValueError,
     ) as exc:
         st.error(f"İşlem tamamlanamadı: {exc}")
+        _render_footer()
         return
 
     st.session_state["last_workflow_result"] = result
@@ -324,6 +338,7 @@ def main() -> None:
     )
     if developer_mode:
         _render_evaluation_dashboard()
+    _render_footer()
 
 
 def get_activity_types() -> list[str]:
@@ -333,6 +348,41 @@ def get_activity_types() -> list[str]:
         for activity in ActivityService().get_all()
     }
     return sorted(activity_types)
+
+
+def _get_history_repository() -> RecommendationHistoryRepository:
+    """Return local file history or an isolated public-demo session store."""
+    settings = HistorySettings.from_environment()
+    if settings.storage_mode == "file":
+        return create_history_repository(
+            storage_mode=settings.storage_mode,
+            history_path=settings.history_path,
+        )
+
+    session_id = st.session_state.get("history_session_id")
+    if not isinstance(session_id, str) or not session_id:
+        session_id = uuid4().hex
+        st.session_state["history_session_id"] = session_id
+    return create_history_repository(
+        storage_mode=settings.storage_mode,
+        session_id=session_id,
+    )
+
+
+def _render_footer() -> None:
+    """Render unobtrusive public-demo policy links."""
+    st.markdown(
+        (
+            '<div class="app-footer">'
+            f'<a href="{PRIVACY_POLICY_URL}" target="_blank" '
+            'rel="noopener noreferrer">Gizlilik</a>'
+            '<span>·</span>'
+            f'<a href="{TERMS_URL}" target="_blank" '
+            'rel="noopener noreferrer">Kullanım koşulları</a>'
+            "</div>"
+        ),
+        unsafe_allow_html=True,
+    )
 
 
 def build_preferences(
@@ -700,42 +750,52 @@ def format_scenario_result(passed: bool) -> str:
 
 
 def _render_header(developer_mode: bool) -> None:
-    st.title("Weather Decision Agent")
     st.markdown(
         """
-        Bugünkü hava ve tercihlerini birlikte düşünerek sana en rahat
-        aktiviteyi önerir. Hava açık alan için iyi değilse yakın bir kapalı
-        alternatif bulur.
-        """
+        <header class="app-header">
+            <span class="app-kicker">Hava odaklı planlama</span>
+            <h1>Weather Decision Agent</h1>
+            <p>Havaya, konumuna ve planına gerçekten uyan aktiviteler.</p>
+        </header>
+        """,
+        unsafe_allow_html=True,
     )
     if developer_mode:
         st.caption(
             "Karar kuralları ve puanlar deterministiktir. LLM yalnızca aday, "
             "açıklama ve ikinci görüş desteği verir."
         )
-    else:
-        st.caption(
-            "Açık alan iyi görünmüyorsa daha rahat bir kapalı alternatif "
-            "önerir."
-        )
 
 
 def _render_view_mode() -> str:
     with st.sidebar:
-        st.header("Mod")
+        st.markdown(
+            """
+            <div class="sidebar-brand">
+                <span class="sidebar-mark">W</span>
+                <div><strong>Weather Agent</strong><small>Planını havayla eşleştir</small></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         mode_label = st.radio(
             "Görünüm",
-            options=["User Mode", "Developer Mode"],
+            options=["Kullanıcı", "Geliştirici"],
             horizontal=True,
+            label_visibility="collapsed",
         )
-    return DEVELOPER_MODE if mode_label == "Developer Mode" else USER_MODE
+    return DEVELOPER_MODE if mode_label == "Geliştirici" else USER_MODE
 
 
 def _render_preference_form(
     activity_types: list[str],
+    developer_mode: bool,
 ) -> dict[str, object] | None:
     with st.sidebar:
-        st.header("Tercihler")
+        st.markdown(
+            '<div class="sidebar-section-title">Planını oluştur</div>',
+            unsafe_allow_html=True,
+        )
         location_mode = st.radio(
             "Konum",
             options=[LOCATION_MODE_CITY, LOCATION_MODE_COORDINATES],
@@ -768,18 +828,18 @@ def _render_preference_form(
 
         with st.form("recommendation_form"):
             preferred_activity_type = st.selectbox(
-                "Tercih edilen aktivite türü",
+                "Aktivite",
                 options=activity_types,
                 index=_default_activity_index(activity_types),
                 format_func=format_activity_type,
             )
             setting = st.radio(
-                "Ortam tercihi",
+                "Ortam",
                 options=["Açık alan", "Kapalı alan"],
                 horizontal=True,
             )
             temperature_level = st.selectbox(
-                "Sıcaklık tercihi",
+                "Sıcaklık",
                 options=list(TEMPERATURE_LEVEL_RANGES),
                 index=1,
             )
@@ -843,12 +903,15 @@ def _render_preference_form(
                 value=3,
             )
             use_llm = st.checkbox(
-                "LLM aday üretimi, açıklaması ve ikinci hakem",
+                (
+                    "LLM aday üretimi ve ikinci hakem"
+                    if developer_mode
+                    else "Akıllı açıklamalar"
+                ),
                 value=True,
                 help=(
-                    "Açıldığında güvenli sonuç bulunamazsa aday üretir; "
-                    "doğrulanmış sonuçları açıklar ve ikinci değerlendirme "
-                    "yapar."
+                    "Önerilerin neden uygun olduğunu daha doğal bir dille "
+                    "açıklar. Ana karar güvenlik kurallarında kalır."
                 ),
             )
             submitted = st.form_submit_button(
@@ -1166,20 +1229,26 @@ def _render_coordinate_forecast_selector(
 
 
 def _render_empty_state(developer_mode: bool) -> None:
-    st.info(
-        "Soldaki tercihleri düzenleyip **Öneri üret** düğmesine basarak "
-        "agent akışını başlat."
-    )
-    columns = st.columns(3)
     if developer_mode:
+        st.info(
+            "Tercihleri düzenleyip öneri üreterek karar akışını başlat."
+        )
+        columns = st.columns(3)
         columns[0].metric("Karar araçları", "3", "Weather, Catalog, Scoring")
         columns[1].metric("Evaluation kontrolleri", "6")
-        columns[2].metric("Otomatik test", "153 başarılı")
+        columns[2].metric("Otomatik test", "159 başarılı")
         _render_venue_provider_status()
     else:
-        columns[0].metric("Görünüm", "Sade")
-        columns[1].metric("Geçmiş", "Aktif")
-        columns[2].metric("Feedback", "Hazır")
+        st.markdown(
+            """
+            <section class="empty-state">
+                <span>Yeni plan</span>
+                <h2>Bugün için en iyi seçeneği bulalım.</h2>
+                <p>Önerilerin; seçtiğin gün, hava ve aktivite tercihine göre burada görünecek.</p>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 def _render_venue_provider_status() -> None:
@@ -1225,13 +1294,19 @@ def _render_workflow_result(
     agent_result = result.agent_result
 
     _render_weather(agent_result.weather, developer_mode)
-    if not developer_mode:
-        st.info(_format_user_weather_summary(agent_result.weather))
 
     if not agent_result.recommendations:
         st.warning(agent_result.message)
     else:
-        st.subheader("Öneriler")
+        st.markdown(
+            """
+            <div class="section-heading">
+                <span>Senin için seçildi</span>
+                <h2>Öneriler</h2>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         for index, recommendation in enumerate(
             agent_result.recommendations,
             start=1,
@@ -1283,19 +1358,34 @@ def _render_weather(weather, developer_mode: bool) -> None:
         else:
             temperature_label = f"{weather.temperature_celsius:.1f} °C"
 
-    st.subheader(heading)
     if not developer_mode:
+        risk_key = weather.severity_level.value.casefold()
         st.markdown(
             (
-                f"**Hava:** {format_condition(weather.condition)} · "
-                f"{temperature_label} · yağış "
-                f"%{weather.precipitation_probability_percent} · "
-                f"rüzgâr {weather.wind_speed_kmh:.1f} km/h · "
-                f"{format_severity(weather.severity_level.value)}"
-            )
+                '<section class="weather-overview">'
+                '<div class="weather-primary">'
+                f'<span>{escape(heading)}</span>'
+                f'<strong>{escape(temperature_label)}</strong>'
+                f'<p>{escape(format_condition(weather.condition))}</p>'
+                "</div>"
+                '<div class="weather-facts">'
+                '<div><span>Yağış</span>'
+                f'<strong>%{weather.precipitation_probability_percent}</strong></div>'
+                '<div><span>Rüzgâr</span>'
+                f'<strong>{weather.wind_speed_kmh:.0f} km/h</strong></div>'
+                '<div><span>Hava riski</span>'
+                f'<strong class="risk-label risk-{risk_key}">'
+                f'{escape(format_severity(weather.severity_level.value))}'
+                "</strong></div>"
+                "</div>"
+                f'<p class="weather-note">{escape(_format_user_weather_summary(weather))}</p>'
+                "</section>"
+            ),
+            unsafe_allow_html=True,
         )
         return
 
+    st.subheader(heading)
     columns = st.columns(5)
     columns[0].metric("Sıcaklık", temperature_label)
     columns[1].metric(
@@ -1345,7 +1435,13 @@ def _render_recommendation_card(
     with st.container(border=True):
         title_column, score_column = st.columns([4, 1.25])
         title_column.markdown(
-            f"### {index}. {format_activity_name(recommendation.activity.name)}"
+            (
+                '<div class="recommendation-heading">'
+                f"<span>Öneri {index}</span>"
+                f"<h3>{escape(format_activity_name(recommendation.activity.name))}</h3>"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
         )
         if developer_mode:
             score_column.markdown(
@@ -1374,8 +1470,13 @@ def _render_recommendation_card(
         activity_type_label = format_activity_type(
             recommendation.activity.activity_type
         )
-        st.caption(
-            f"{activity_type_label} · {setting}"
+        st.markdown(
+            (
+                '<div class="recommendation-meta">'
+                f"{escape(activity_type_label)}<span>·</span>{escape(setting)}"
+                "</div>"
+            ),
+            unsafe_allow_html=True,
         )
 
         if not developer_mode:
@@ -1413,8 +1514,9 @@ def _render_recommendation_card(
                 f"{breakdown.practicality:.1f}/15",
             )
 
-        for warning in recommendation.warnings:
-            st.warning(format_warning(warning))
+        if developer_mode:
+            for warning in recommendation.warnings:
+                st.warning(format_warning(warning))
 
         if recommendation.venues:
             _render_venue_candidates(
@@ -1431,39 +1533,38 @@ def _render_venue_candidates(
     developer_mode: bool,
     key_prefix: str,
 ) -> None:
-    st.markdown("**Mekan adayları**")
+    st.markdown('<div class="venue-title">Yakındaki mekanlar</div>', unsafe_allow_html=True)
     google_venues = [
         venue for venue in venues if venue.source == "google_places"
     ]
     if google_venues:
-        st.markdown(
-            '<div translate="no" style="color:#5e5e5e;font-size:1rem;'
-            'letter-spacing:normal;white-space:nowrap;margin-bottom:0.5rem;">'
-            "Google Maps</div>",
-            unsafe_allow_html=True,
-        )
+        st.caption("Google Maps sonuçları")
     for venue in venues:
-        st.markdown(f"**{venue.name}**")
-        st.caption(
-            f"{format_venue_distance_level(venue.distance_km)} · "
-            f"sana yaklaşık {format_venue_distance(venue.distance_km)} · "
-            f"{format_venue_transport_ease(venue.transport_ease)}"
-        )
-        st.caption(
-            f"{format_cost_level(venue.cost_level)} bütçe · "
-            f"{format_reservation_requirement(venue.requires_reservation)}"
-        )
+        venue_column, action_column = st.columns([4, 1.35])
+        with venue_column:
+            st.markdown(f"**{venue.name}**")
+            st.caption(
+                f"{format_venue_distance_level(venue.distance_km)} · "
+                f"{format_venue_distance(venue.distance_km)} · "
+                f"{format_venue_transport_ease(venue.transport_ease)}"
+            )
+            st.caption(
+                f"{format_cost_level(venue.cost_level)} bütçe · "
+                f"{format_reservation_requirement(venue.requires_reservation)}"
+            )
         if developer_mode:
             st.caption(
                 f"source: {venue.source} | "
                 f"lat/lon: {venue.latitude:.4f}, {venue.longitude:.4f}"
             )
         if venue.google_maps_uri:
-            st.link_button(
-                "Google Maps'te aç",
-                venue.google_maps_uri,
-                icon=":material/map:",
-            )
+            with action_column:
+                st.link_button(
+                    "Haritada aç",
+                    venue.google_maps_uri,
+                    icon=":material/map:",
+                    use_container_width=True,
+                )
         for attribution in venue.attributions:
             if attribution.provider_uri:
                 st.markdown(
@@ -1828,24 +1929,27 @@ def _render_feedback_controls(
     if record is None:
         return
 
-    st.subheader("Geri bildirim")
+    st.markdown("### Bu plan işine yaradı mı?")
     if record.feedback is not None:
         st.caption(
             f"Kaydedilen geri bildirim: {format_feedback_value(record.feedback)}"
         )
 
-    note = st.text_input(
-        "Kısa not",
-        value=record.feedback_note,
-        key=f"feedback_note_{record.record_id}",
-        placeholder="İstersen bu önerinin neden iyi/kötü olduğunu yaz.",
-    )
+    with st.expander("Kısa bir not ekle", expanded=False):
+        note = st.text_input(
+            "Kısa not",
+            value=record.feedback_note,
+            key=f"feedback_note_{record.record_id}",
+            placeholder="Neyi beğendiğini veya neyin eksik kaldığını yaz.",
+            label_visibility="collapsed",
+        )
     positive_column, negative_column = st.columns(2)
 
     if positive_column.button(
         "Beğendim",
         key=f"feedback_positive_{record.record_id}",
         use_container_width=True,
+        icon=":material/thumb_up:",
     ):
         _store_feedback(
             result,
@@ -1855,9 +1959,10 @@ def _render_feedback_controls(
         )
 
     if negative_column.button(
-        "Beğenmedim",
+        "Geliştirilebilir",
         key=f"feedback_negative_{record.record_id}",
         use_container_width=True,
+        icon=":material/thumb_down:",
     ):
         _store_feedback(
             result,
@@ -2090,25 +2195,269 @@ def _render_styles() -> None:
     st.markdown(
         """
         <style>
+        :root {
+            --app-bg: #0c0f14;
+            --sidebar-bg: #16191f;
+            --surface: #151920;
+            --surface-strong: #1b2028;
+            --border: #2a3039;
+            --text: #f4f6f8;
+            --muted: #9da6b2;
+            --accent: #ff665b;
+            --accent-hover: #ff786e;
+            --mint: #5cc8ad;
+            --amber: #e9b44c;
+            --danger: #ef6a72;
+        }
+        html, body, [class*="css"] {
+            letter-spacing: 0 !important;
+        }
+        .stApp {
+            background: var(--app-bg);
+        }
+        header[data-testid="stHeader"] {
+            background: transparent;
+        }
+        [data-testid="stToolbar"] [data-testid="stBaseButton-header"],
+        [data-testid="stMainMenuButton"] {
+            visibility: hidden;
+        }
         .block-container {
-            max-width: 1180px;
-            padding-top: 2rem;
-            padding-bottom: 4rem;
+            max-width: 1120px;
+            padding-top: 3.25rem;
+            padding-bottom: 3rem;
+        }
+        section[data-testid="stSidebar"] {
+            background: var(--sidebar-bg);
+            border-right: 1px solid var(--border);
+            width: 340px !important;
+        }
+        section[data-testid="stSidebar"] > div {
+            padding-top: 1.25rem;
+        }
+        .sidebar-brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.15rem 0 1.35rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 1rem;
+        }
+        .sidebar-mark {
+            display: inline-grid;
+            place-items: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            background: var(--accent);
+            color: white;
+            font-weight: 800;
+        }
+        .sidebar-brand strong,
+        .sidebar-brand small {
+            display: block;
+        }
+        .sidebar-brand strong {
+            color: var(--text);
+            font-size: 0.98rem;
+        }
+        .sidebar-brand small {
+            color: var(--muted);
+            font-size: 0.72rem;
+            margin-top: 0.1rem;
+        }
+        .sidebar-section-title {
+            color: var(--text);
+            font-size: 1.12rem;
+            font-weight: 700;
+            margin: 1.25rem 0 0.65rem;
+        }
+        section[data-testid="stSidebar"] [data-testid="stButton"] button {
+            min-height: 62px;
+            border-color: var(--border);
+            border-radius: 8px;
+            font-size: 0.78rem;
+            line-height: 1.35;
+        }
+        section[data-testid="stSidebar"] [data-testid="stFormSubmitButton"] button {
+            min-height: 46px;
+            font-size: 0.95rem;
+        }
+        .app-header {
+            padding: 0 0 2rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 2rem;
+        }
+        .app-kicker,
+        .section-heading > span,
+        .recommendation-heading > span,
+        .empty-state > span {
+            color: var(--accent);
+            display: block;
+            font-size: 0.72rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            margin-bottom: 0.55rem;
+        }
+        .app-header h1 {
+            color: var(--text);
+            font-size: 3rem;
+            line-height: 1.05;
+            margin: 0;
+            letter-spacing: 0;
+        }
+        .app-header p {
+            color: var(--muted);
+            font-size: 1.05rem;
+            margin: 0.8rem 0 0;
+        }
+        .empty-state {
+            min-height: 300px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 2rem 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .empty-state h2 {
+            color: var(--text);
+            font-size: 2rem;
+            line-height: 1.2;
+            margin: 0;
+            max-width: 560px;
+            letter-spacing: 0;
+        }
+        .empty-state p {
+            color: var(--muted);
+            font-size: 1rem;
+            line-height: 1.65;
+            margin: 0.85rem 0 0;
+            max-width: 620px;
+        }
+        .weather-overview {
+            display: grid;
+            grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.5fr);
+            gap: 1.5rem 2.5rem;
+            align-items: center;
+            padding: 1.5rem 0;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 2.5rem;
+        }
+        .weather-primary > span {
+            color: var(--muted);
+            display: block;
+            font-size: 0.8rem;
+            margin-bottom: 0.4rem;
+        }
+        .weather-primary > strong {
+            color: var(--text);
+            display: block;
+            font-size: 2rem;
+            line-height: 1.1;
+        }
+        .weather-primary > p {
+            color: var(--muted);
+            margin: 0.35rem 0 0;
+        }
+        .weather-facts {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+        .weather-facts > div {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            min-height: 74px;
+            padding: 0.75rem;
+        }
+        .weather-facts span,
+        .weather-facts strong {
+            display: block;
+        }
+        .weather-facts span {
+            color: var(--muted);
+            font-size: 0.72rem;
+            margin-bottom: 0.25rem;
+        }
+        .weather-facts strong {
+            color: var(--text);
+            font-size: 1rem;
+            white-space: nowrap;
+        }
+        .weather-facts .risk-label {
+            display: inline-block;
+            font-size: 0.82rem;
+            padding: 0.18rem 0.5rem;
+            border-radius: 999px;
+            text-transform: capitalize;
+        }
+        .risk-low {
+            background: rgba(92, 200, 173, 0.14);
+            color: var(--mint) !important;
+        }
+        .risk-moderate {
+            background: rgba(233, 180, 76, 0.14);
+            color: var(--amber) !important;
+        }
+        .risk-high,
+        .risk-severe {
+            background: rgba(239, 106, 114, 0.14);
+            color: var(--danger) !important;
+        }
+        .weather-note {
+            color: var(--muted);
+            font-size: 0.9rem;
+            line-height: 1.55;
+            grid-column: 1 / -1;
+            margin: -0.5rem 0 0;
+        }
+        .section-heading {
+            margin: 2.5rem 0 1rem;
+        }
+        .section-heading h2 {
+            color: var(--text);
+            font-size: 1.8rem;
+            line-height: 1.2;
+            margin: 0;
+            letter-spacing: 0;
+        }
+        main [data-testid="stVerticalBlockBorderWrapper"] {
+            background: var(--surface);
+            border-color: var(--border);
+            border-radius: 8px;
+            padding: 0.35rem;
+        }
+        .recommendation-heading h3 {
+            color: var(--text);
+            font-size: 1.45rem;
+            line-height: 1.25;
+            margin: 0;
+            letter-spacing: 0;
+        }
+        .recommendation-meta {
+            color: var(--muted);
+            display: flex;
+            gap: 0.45rem;
+            align-items: center;
+            font-size: 0.82rem;
+            margin: -0.45rem 0 0.4rem;
         }
         [data-testid="stMetric"] {
-            background: rgba(90, 120, 150, 0.08);
-            border: 1px solid rgba(120, 140, 160, 0.18);
-            border-radius: 12px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 0.8rem;
         }
         .score-badge {
-            background: rgba(90, 120, 150, 0.08);
-            border: 1px solid rgba(120, 140, 160, 0.18);
-            border-radius: 12px;
+            background: var(--surface-strong);
+            border: 1px solid var(--border);
+            border-radius: 8px;
             padding: 0.65rem 0.8rem;
         }
         .score-badge span {
-            color: rgba(220, 225, 235, 0.72);
+            color: var(--muted);
             display: block;
             font-size: 0.8rem;
             margin-bottom: 0.15rem;
@@ -2119,18 +2468,105 @@ def _render_styles() -> None:
             white-space: nowrap;
         }
         .score-badge.soft strong {
-            font-size: 1.1rem;
+            color: var(--mint);
+            font-size: 1rem;
+        }
+        .venue-title {
+            color: var(--text);
+            font-size: 0.9rem;
+            font-weight: 700;
+            margin-top: 0.65rem;
+        }
+        div[data-testid="stAlert"] {
+            border-radius: 8px;
+        }
+        .stButton button,
+        .stLinkButton a,
+        [data-testid="stFormSubmitButton"] button {
+            border-radius: 8px;
+        }
+        .stButton button[kind="primary"],
+        [data-testid="stFormSubmitButton"] button[kind="primary"] {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+        .stButton button[kind="primary"]:hover,
+        [data-testid="stFormSubmitButton"] button[kind="primary"]:hover {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+        [data-baseweb="input"] > div,
+        [data-baseweb="select"] > div {
+            border-radius: 8px;
+        }
+        details {
+            border-radius: 8px !important;
         }
         div[data-testid="stDialog"] div[role="dialog"] {
             max-width: min(1120px, 94vw);
+            border-radius: 8px;
         }
         div[data-testid="stDialog"] iframe {
             border: 0;
-            border-radius: 18px;
+            border-radius: 8px;
             box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
         }
         section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] {
-            border-radius: 14px;
+            border-radius: 8px;
+        }
+        .app-footer {
+            color: var(--muted);
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            padding: 2.5rem 0 0.5rem;
+            margin-top: 2.5rem;
+            border-top: 1px solid var(--border);
+        }
+        .app-footer a {
+            color: var(--muted);
+            text-decoration: none;
+        }
+        .app-footer a:hover {
+            color: var(--text);
+        }
+        @media (max-width: 768px) {
+            .block-container {
+                padding-top: 1.5rem;
+            }
+            .app-header {
+                padding-bottom: 1.35rem;
+                margin-bottom: 1.35rem;
+            }
+            .app-header h1 {
+                font-size: 2.15rem;
+            }
+            .app-header p {
+                font-size: 0.95rem;
+            }
+            .empty-state {
+                min-height: 220px;
+            }
+            .empty-state h2 {
+                font-size: 1.6rem;
+            }
+            .weather-overview {
+                grid-template-columns: 1fr;
+                gap: 1.25rem;
+            }
+            .weather-note {
+                margin-top: 0;
+            }
+            .weather-facts {
+                grid-template-columns: repeat(3, minmax(92px, 1fr));
+                overflow-x: auto;
+            }
+            .score-badge {
+                padding: 0.55rem;
+            }
         }
         </style>
         """,

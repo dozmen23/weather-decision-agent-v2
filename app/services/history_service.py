@@ -1,6 +1,7 @@
 """JSONL-backed recommendation history persistence."""
 
 import json
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,7 @@ from app.models.recommendation_history import (
 DEFAULT_HISTORY_PATH = (
     Path(__file__).resolve().parents[2] / "data" / "recommendation_history.jsonl"
 )
+SESSION_HISTORY_ROOT = Path(tempfile.gettempdir()) / "weather-decision-agent"
 
 
 class RecommendationHistoryError(RuntimeError):
@@ -41,7 +43,6 @@ class RecommendationHistoryRepository:
             raise RecommendationHistoryError(
                 f"Recommendation history could not be written: {self.history_path}"
             ) from exc
-
         return record
 
     def list_recent(self, limit: int = 20) -> list[RecommendationHistoryRecord]:
@@ -117,6 +118,32 @@ class RecommendationHistoryRepository:
             raise RecommendationHistoryError(
                 f"Recommendation history could not be written: {self.history_path}"
             ) from exc
+
+
+def create_history_repository(
+    *,
+    storage_mode: str = "file",
+    history_path: str = "",
+    session_id: str = "",
+) -> RecommendationHistoryRepository:
+    """Create local persistent or public-demo session history storage."""
+    if storage_mode == "file":
+        return RecommendationHistoryRepository(
+            Path(history_path) if history_path else DEFAULT_HISTORY_PATH
+        )
+    if storage_mode != "session":
+        raise RecommendationHistoryError(
+            "History storage mode must be 'file' or 'session'."
+        )
+
+    normalized_session_id = session_id.strip()
+    if not normalized_session_id or not normalized_session_id.isalnum():
+        raise RecommendationHistoryError(
+            "Session history requires an alphanumeric session id."
+        )
+    return RecommendationHistoryRepository(
+        SESSION_HISTORY_ROOT / f"{normalized_session_id}.jsonl"
+    )
 
 
 def _record_to_dict(record: RecommendationHistoryRecord) -> dict[str, Any]:

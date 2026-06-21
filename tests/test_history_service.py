@@ -13,10 +13,34 @@ from app.models.recommendation_history import (
 from app.services.history_service import (
     RecommendationHistoryError,
     RecommendationHistoryRepository,
+    create_history_repository,
 )
 
 
 class RecommendationHistoryRepositoryTests(unittest.TestCase):
+    def test_session_history_uses_an_isolated_temporary_path(self) -> None:
+        first = create_history_repository(
+            storage_mode="session",
+            session_id="sessionone",
+        )
+        second = create_history_repository(
+            storage_mode="session",
+            session_id="sessiontwo",
+        )
+
+        self.assertNotEqual(first.history_path, second.history_path)
+        self.assertIn("weather-decision-agent", str(first.history_path))
+
+    def test_session_history_rejects_unsafe_session_id(self) -> None:
+        with self.assertRaisesRegex(
+            RecommendationHistoryError,
+            "alphanumeric",
+        ):
+            create_history_repository(
+                storage_mode="session",
+                session_id="../shared",
+            )
+
     def test_append_list_and_update_feedback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             repository = RecommendationHistoryRepository(

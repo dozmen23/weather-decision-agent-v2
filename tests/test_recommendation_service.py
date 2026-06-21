@@ -10,7 +10,7 @@ from typing import Any
 from app.agent.decision_agent import AgentResult, DecisionAgent
 from app.config import ConfigurationError
 from app.llm.judge_service import LLMJudgeVerdict
-from app.models.activity import Activity
+from app.models.activity import Activity, CostLevel, TransportEase
 from app.models.recommendation import Recommendation
 from app.models.recommendation_history import (
     FeedbackValue,
@@ -19,8 +19,12 @@ from app.models.recommendation_history import (
 )
 from app.models.user_preferences import UserPreferences
 from app.models.weather_data import WeatherData
+from app.models.venue import Venue
 from app.services.history_service import RecommendationHistoryRepository
-from app.services.recommendation_service import RecommendationService
+from app.services.recommendation_service import (
+    RecommendationService,
+    _select_diverse_venues,
+)
 from app.services.venue_providers import JsonVenueProvider
 from app.services.venue_providers.google_places_provider import (
     GooglePlacesVenueProvider,
@@ -384,6 +388,38 @@ class RecommendationServiceTests(unittest.TestCase):
         )
         self.assertEqual(result.agent_result.recommendations[0].venues, [])
         self.assertTrue(result.deterministic_evaluation.system_behavior_valid)
+
+    def test_venue_selection_prefers_unused_places_without_losing_fallback(self) -> None:
+        venues = [
+            Venue(
+                name=f"Venue {index}",
+                activity_types=("sports",),
+                is_outdoor=False,
+                city="Istanbul",
+                latitude=41.0,
+                longitude=29.0,
+                distance_km=float(index),
+                transport_ease=TransportEase.EASY,
+                cost_level=CostLevel.LOW,
+                requires_reservation=False,
+                source="google_places",
+                provider_venue_id=f"place-{index}",
+            )
+            for index in range(1, 5)
+        ]
+        used = {"google_places:place-1", "google_places:place-2"}
+
+        diverse = _select_diverse_venues(venues, used, limit=2)
+        fallback = _select_diverse_venues(venues[:2], used, limit=2)
+
+        self.assertEqual(
+            [venue.provider_venue_id for venue in diverse],
+            ["place-3", "place-4"],
+        )
+        self.assertEqual(
+            [venue.provider_venue_id for venue in fallback],
+            ["place-1", "place-2"],
+        )
 
     def test_external_venue_provider_requires_client_configuration(self) -> None:
         previous_value = os.environ.get("VENUE_PROVIDER")

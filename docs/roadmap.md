@@ -24,6 +24,9 @@
   venue output.
 - Google Maps JavaScript component for point selection and compliant display of
   Google Places markers, using a separate referrer-restricted browser key.
+- Activity-specific Google Places intents for sports recommendations, plus soft
+  cross-card venue diversity that still permits repeats when no alternative is
+  available.
 - Google Places evaluation fixtures verify activity-to-place-type coverage,
   trusted source attribution, distance sorting, preference filtering, malformed
   result isolation, and graceful degradation during provider failures.
@@ -74,9 +77,10 @@
 
 ## Next Technical Milestones
 
-1. Define the next product scope together after reviewing the completed venue
-   provider, Google Places, and evaluation stages.
-2. Prepare deployment only after the application workflow is complete.
+1. Publish the completed application as a Hugging Face Docker Space.
+2. Observe real demo usage and refine activity-specific venue intents where
+   result quality is weak.
+3. Define the next product scope together after deployment feedback.
 
 ## Activity Catalog Direction
 
@@ -113,7 +117,6 @@ These items are intentionally postponed until the technical workflow is stable:
 
 - Login and registration.
 - Complex database design.
-- Full Google Maps integration.
 - Booking, live opening hours, and route planning.
 - Advanced ML personalization.
 - Mobile app development.

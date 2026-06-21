@@ -27,6 +27,7 @@ from app.models.recommendation_history import (
     utc_timestamp,
 )
 from app.models.user_preferences import UserPreferences
+from app.models.venue import Venue
 from app.services.history_service import (
     RecommendationHistoryError,
     RecommendationHistoryRepository,
@@ -43,6 +44,8 @@ from evaluation.evaluator import (
 INDOOR_FEEDBACK_PENALTY = 2.0
 PERSONALIZATION_HISTORY_LIMIT = 20
 PERSONALIZATION_NEGATIVE_THRESHOLD = 2
+VENUE_DISPLAY_LIMIT = 2
+VENUE_DIVERSITY_POOL_LIMIT = 4
 
 
 @dataclass(frozen=True)
@@ -278,19 +281,29 @@ class RecommendationService:
         origin_longitude = venue_origin[1] if venue_origin else None
         try:
             recommendations = []
+            used_venue_keys: set[str] = set()
             for recommendation in agent_result.recommendations:
                 venues, venue_trace = self.venue_service.find_candidates_with_trace(
                     activity_type=recommendation.activity.activity_type,
+                    activity_name=recommendation.activity.name,
                     is_outdoor=recommendation.activity.is_outdoor,
                     preferences=preferences,
                     origin_latitude=origin_latitude,
                     origin_longitude=origin_longitude,
-                    limit=2,
+                    limit=VENUE_DIVERSITY_POOL_LIMIT,
+                )
+                selected_venues = _select_diverse_venues(
+                    venues,
+                    used_venue_keys,
+                    limit=VENUE_DISPLAY_LIMIT,
+                )
+                used_venue_keys.update(
+                    _venue_identity(venue) for venue in selected_venues
                 )
                 recommendations.append(
                     replace(
                         recommendation,
-                        venues=venues,
+                        venues=selected_venues,
                         venue_filter_trace=venue_trace,
                     ),
                 )
@@ -298,6 +311,33 @@ class RecommendationService:
             return agent_result
 
         return replace(agent_result, recommendations=recommendations)
+
+
+def _select_diverse_venues(
+    venues: list[Venue],
+    used_venue_keys: set[str],
+    *,
+    limit: int,
+) -> list[Venue]:
+    """Prefer unused venues while keeping repeated venues as a fallback."""
+    fresh = [
+        venue
+        for venue in venues
+        if _venue_identity(venue) not in used_venue_keys
+    ]
+    repeated = [
+        venue
+        for venue in venues
+        if _venue_identity(venue) in used_venue_keys
+    ]
+    return (fresh + repeated)[:limit]
+
+
+def _venue_identity(venue: Venue) -> str:
+    """Return a stable provider identity with a safe catalog fallback."""
+    if venue.provider_venue_id:
+        return f"{venue.source}:{venue.provider_venue_id}"
+    return f"{venue.source}:{venue.name.strip().casefold()}"
 
 
 def _build_generated_candidate_result(

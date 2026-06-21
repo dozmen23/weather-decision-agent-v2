@@ -20,6 +20,7 @@ class NearbyVenueProvider(VenueProvider, Protocol):
         self,
         *,
         activity_type: str,
+        activity_name: str | None,
         is_outdoor: bool,
         origin_latitude: float,
         origin_longitude: float,
