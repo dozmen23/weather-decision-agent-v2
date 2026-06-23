@@ -206,7 +206,7 @@ class WeatherServiceTests(unittest.TestCase):
 
         self.assertEqual(len(forecast), 2)
         self.assertEqual(forecast[0].forecast_date, date(2026, 6, 12))
-        self.assertEqual(forecast[0].temperature_celsius, 23.0)
+        self.assertEqual(forecast[0].temperature_celsius, 28.0)
         self.assertEqual(forecast[0].minimum_temperature_celsius, 18.0)
         self.assertEqual(forecast[0].maximum_temperature_celsius, 28.0)
         self.assertEqual(forecast[1].condition, "Rainy")
@@ -298,7 +298,7 @@ class WeatherServiceTests(unittest.TestCase):
 
         self.assertEqual(weather.forecast_date, date(2026, 6, 13))
         self.assertEqual(weather.condition, "Rainy")
-        self.assertEqual(weather.temperature_celsius, 18)
+        self.assertEqual(weather.temperature_celsius, 22)
 
     def test_weather_for_unavailable_date_is_rejected(self) -> None:
         responses = iter(

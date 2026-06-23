@@ -306,7 +306,10 @@ class WeatherService:
                 forecasts.append(
                     WeatherData(
                         city=location.display_name,
-                        temperature_celsius=(minimum + maximum) / 2,
+                        # Use the daytime maximum as the decision temperature.
+                        # A daily midpoint can understate summer heat and make
+                        # activity suitability look milder than peak conditions.
+                        temperature_celsius=maximum,
                         precipitation_probability_percent=int(
                             precipitation_probability
                         ),
